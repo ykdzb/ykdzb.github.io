@@ -51,7 +51,7 @@
         
         // UI 配置
         const uiItemSize = 64;          // 底部图标大小
-        const uiGap = 15;               // 🌟 物品间距改小了，挨得更近
+        const uiGap = 15;               // 物品间距
         // ==========================================
 
         // 收集数据
@@ -366,8 +366,6 @@
             let startX = (logicWidth - totalWidth) / 2;
             const startY = logicHeight - uiItemSize - 20;
 
-            // 🌟 彻底移除了外面的灰色半透明壳
-
             for (let i = 0; i < activeItems.length; i++) {
                 const item = activeItems[i];
                 const itemX = startX + i * (uiItemSize + uiGap);
@@ -377,16 +375,15 @@
                     ctx.drawImage(item.img, itemX, itemY, uiItemSize, uiItemSize);
                 }
 
-                // 🌟 把数字画在图标右上角，坐标微微上浮和右移了一点
-                drawNumber(item.count, itemX + uiItemSize + 8, itemY - 12);
+                // 🌟 数字精准对齐到图标的右上角
+                drawNumber(item.count, itemX + uiItemSize - 2, itemY - 10);
             }
         }
 
         function drawNumber(num, endX, endY) {
             const str = num.toString();
             let currentRightX = endX;
-            // 🌟 将缩放比例从 0.6 提高到 2.0，数字瞬间变大，且保持长方形比例
-            const numScale = 2.0; 
+            const numScale = 2.0; // 保持 2 倍放大
 
             for (let i = str.length - 1; i >= 0; i--) {
                 const digit = str[i];
@@ -396,16 +393,13 @@
                     const w = img.width * numScale;
                     const h = img.height * numScale;
                     
-                    // 阴影（可选，如果你觉得不需要可以删掉这两行）
-                    ctx.drawImage(img, currentRightX - w + 2, endY + 2, w, h); 
-                    // 像素图本体
+                    // 🌟 删除了带偏移的阴影叠加，只画本体，彻底解决重影问题
                     ctx.drawImage(img, currentRightX - w, endY, w, h);
 
-                    currentRightX -= (w + 2); // 字符间距
+                    currentRightX -= (w - 1); // 字符间距紧紧挨着
                 } else {
-                    // 兜底：没图时的白字（也跟着放大了）
                     ctx.fillStyle = '#fff';
-                    ctx.font = 'bold 32px "Courier New", Courier, monospace';
+                    ctx.font = 'bold 24px "Courier New", Courier, monospace';
                     ctx.textAlign = 'right';
                     ctx.textBaseline = 'top';
                     ctx.fillText(str, endX, endY);
