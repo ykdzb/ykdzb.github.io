@@ -36,21 +36,19 @@
         const grassTargetSize = 128;   // 草地目标大小
         const playerTargetSize = 48;   // 人物目标大小
         
-        const maxSpeed = 5.5;          // 【调慢速度】最高移动速度 (数字越小越慢)
-        const maxRadius = 250;         // 鼠标离中心多远时达到最高速 (半径越大，起步越慢)
+        const maxSpeed = 5.5;          // 【调慢速度】最高移动速度
+        const maxRadius = 250;         // 鼠标离中心多远时达到最高速 
         
-        // 【途中平滑】：控制加速的柔顺度。0.1 起步柔和，0.2 比较跟手。不要低于0.05，否则太迟钝。
-        const accelerationSmooth = 0.15; 
-        
-        // 【松开平滑】：控制松开后的滑行距离。越接近 1 (如0.96) 滑得越远，越小 (如0.85) 停得越快。
-        const friction = 0.94;         
+        const accelerationSmooth = 0.15; // 【途中平滑】：起步柔和度
+        const friction = 0.94;           // 【松开平滑】：滑行距离
         // ==================================================
 
         const grassImg = new Image();
         const playerImg = new Image();
         
-        grassImg.src = './item/grass.png';
-        playerImg.src = './mob/player.png';
+        // 🌟 修改了这里的路径，加入了 Game/picture/
+        grassImg.src = './Game/picture/item/grass.png';
+        playerImg.src = './Game/picture/mob/player.png';
 
         let grassW = grassTargetSize, grassH = grassTargetSize;
         let playerW = playerTargetSize, playerH = playerTargetSize;
@@ -131,18 +129,15 @@
                 let targetVx = 0;
                 let targetVy = 0;
 
-                if (distance > 10) { // 防止鼠标死区抖动
-                    // 限制最大有效距离
+                if (distance > 10) { 
                     const effectiveDist = Math.min(distance, maxRadius);
-                    // 计算当前距离对应的最大速度
                     const currentMaxSpeed = (effectiveDist / maxRadius) * maxSpeed;
                     
-                    // 归一化方向并乘以速度
                     targetVx = (dx / distance) * currentMaxSpeed;
                     targetVy = (dy / distance) * currentMaxSpeed;
                 }
 
-                // 2. 途中平滑：让当前速度去慢慢逼近目标速度（产生柔和的加速感）
+                // 2. 途中平滑：让当前速度去慢慢逼近目标速度
                 velocityX += (targetVx - velocityX) * accelerationSmooth;
                 velocityY += (targetVy - velocityY) * accelerationSmooth;
 
@@ -151,7 +146,6 @@
                 velocityX *= friction;
                 velocityY *= friction;
 
-                // 速度极小的时候直接归零，防止无限微微滑动
                 if (Math.abs(velocityX) < 0.05) velocityX = 0;
                 if (Math.abs(velocityY) < 0.05) velocityY = 0;
             }
