@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>无限草地 - 迷雾探索版</title>
+    <title>无限草地 - 像素迷雾完美版</title>
     <style>
         body, html {
             margin: 0;
@@ -48,19 +48,12 @@
         // ==================================================
 
         // ================= 迷雾配置区 =================
-        const tileSize = 32; // 探索记录网格大小（越小记录越精确，但计算量稍大）
-        const brushRadius = 160; // 开雾笔刷大小（玩家视野范围，适中偏大）
+        // 网格越小，渐变的像素阶梯越多，但也越吃性能。
+        // 8x8 是像素风最佳的平衡点。
+        const tileSize = 8; 
         
         // 记录探索过的网格 "x,y"
         const exploredTiles = new Set(); 
-
-        // 创建离屏 Canvas 用于渲染迷雾
-        const fogCanvas = document.createElement('canvas');
-        const fogCtx = fogCanvas.getContext('2d');
-        
-        // 创建一个像素风渐变笔刷
-        const brushCanvas = document.createElement('canvas');
-        const brushCtx = brushCanvas.getContext('2d');
         // ==============================================
 
         const grassImg = new Image();
@@ -82,7 +75,6 @@
                     playerW = playerTargetSize;
                     playerH = playerTargetSize * (playerImg.height / playerImg.width);
                 }
-                initBrush(); // 初始化笔刷
                 gameLoop();
             }
         }
@@ -91,22 +83,6 @@
         playerImg.onload = checkLoaded;
         grassImg.onerror = checkLoaded;
         playerImg.onerror = checkLoaded;
-
-        // 生成像素风渐变笔刷
-        function initBrush() {
-            brushCanvas.width = brushRadius * 2;
-            brushCanvas.height = brushRadius * 2;
-            brushCtx.imageSmoothingEnabled = false;
-            
-            // 用多层同心矩形来模拟像素风的渐变（阶梯状透明度）
-            // 从外往内画，步长为 8 像素，产生明显的像素阶梯感
-            for (let r = brushRadius; r > 0; r -= 8) {
-                // 越往里越不透明（擦除力越强）
-                const alpha = 1 - Math.pow(r / brushRadius, 2); 
-                brushCtx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
-                brushCtx.fillRect(brushRadius - r, brushRadius - r, r * 2, r * 2);
-            }
-        }
 
         let playerX = 0;
         let playerY = 0;
@@ -120,7 +96,7 @@
         let mouseX = 0;
         let mouseY = 0;
 
-        // --- 鼠标与触摸事件统一（保证双端兼容） ---
+        // --- 鼠标与触摸事件统一 ---
         function startMove(x, y) { isMouseDown = true; mouseX = x; mouseY = y; }
         function moveTo(x, y) { mouseX = x; mouseY = y; }
         function endMove() { isMouseDown = false; }
@@ -151,10 +127,6 @@
             canvas.style.width = logicWidth + 'px';
             canvas.style.height = logicHeight + 'px';
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-            // 同步调整迷雾层大小
-            fogCanvas.width = logicWidth;
-            fogCanvas.height = logicHeight;
         }
 
         window.addEventListener('resize', resizeCanvas);
@@ -191,13 +163,12 @@
             playerX += velocityX;
             playerY += velocityY;
 
-            // 2. 记录探索区域
-            // 将玩家当前所在的网格加入记录
+            // 2. 记录探索区域（大范围记录，保证视野开阔）
             const pTileX = Math.floor(playerX / tileSize);
             const pTileY = Math.floor(playerY / tileSize);
             
-            // 为了让开雾顺畅（防止因速度过快产生网格断层），把周围一圈的网格都记录上
-            const recordRadius = 2; 
+            // 记录玩家周围 14 个格子的半径
+            const recordRadius = 14; 
             for (let dx = -recordRadius; dx <= recordRadius; dx++) {
                 for (let dy = -recordRadius; dy <= recordRadius; dy++) {
                     exploredTiles.add(`${pTileX + dx},${pTileY + dy}`);
@@ -209,8 +180,9 @@
             ctx.imageSmoothingEnabled = false;
             ctx.clearRect(0, 0, logicWidth, logicHeight);
 
-            const camX = playerX - logicWidth / 2;
-            const camY = playerY - logicHeight / 2;
+            // 🌟 修复问题1：强制取整相机坐标，消除小数引起的错位和抖动
+            const camX = Math.round(playerX - logicWidth / 2);
+            const camY = Math.round(playerY - logicHeight / 2);
 
             // 1. 绘制底层草地
             if (grassImg.complete && grassImg.naturalHeight !== 0) {
@@ -228,49 +200,61 @@
 
             // 2. 绘制居中人物
             if (playerImg.complete && playerImg.naturalHeight !== 0) {
-                const playerScreenX = logicWidth / 2 - playerW / 2;
-                const playerScreenY = logicHeight / 2 - playerH / 2;
+                const playerScreenX = Math.round(logicWidth / 2 - playerW / 2);
+                const playerScreenY = Math.round(logicHeight / 2 - playerH / 2);
                 ctx.drawImage(playerImg, playerScreenX, playerScreenY, playerW, playerH);
             }
 
-            // 3. 绘制迷雾层
+            // 3. 绘制迷雾层（纯网格阶梯计算法）
             drawFog(camX, camY);
         }
 
         function drawFog(camX, camY) {
-            // 清空并填充纯黑迷雾
-            fogCtx.globalCompositeOperation = 'source-over';
-            fogCtx.clearRect(0, 0, logicWidth, logicHeight);
-            fogCtx.fillStyle = '#0f0f0f'; // 稍微留一点灰，不要纯黑死黑
-            fogCtx.fillRect(0, 0, logicWidth, logicHeight);
+            // 计算屏幕内可见的网格范围
+            const startTileX = Math.floor(camX / tileSize);
+            const endTileX = Math.ceil((camX + logicWidth) / tileSize);
+            const startTileY = Math.floor(camY / tileSize);
+            const endTileY = Math.ceil((camY + logicHeight) / tileSize);
 
-            // 设置擦除模式
-            fogCtx.globalCompositeOperation = 'destination-out';
-            fogCtx.imageSmoothingEnabled = false; // 关键：保持像素笔刷的锐利边缘
+            ctx.fillStyle = '#080808'; // 迷雾基础颜色（极深的暗灰色）
 
-            // 计算当前屏幕需要渲染哪些网格
-            const startTileX = Math.floor(camX / tileSize) - 1;
-            const endTileX = Math.ceil((camX + logicWidth) / tileSize) + 1;
-            const startTileY = Math.floor(camY / tileSize) - 1;
-            const endTileY = Math.ceil((camY + logicHeight) / tileSize) + 1;
-
-            // 遍历屏幕范围内的所有网格
             for (let tx = startTileX; tx <= endTileX; tx++) {
                 for (let ty = startTileY; ty <= endTileY; ty++) {
-                    // 如果这个网格在探索记录中
-                    if (exploredTiles.has(`${tx},${ty}`)) {
-                        // 计算网格中心在屏幕上的坐标
-                        const screenX = tx * tileSize + tileSize / 2 - camX;
-                        const screenY = ty * tileSize + tileSize / 2 - camY;
-                        
-                        // 画上我们的像素渐变笔刷
-                        fogCtx.drawImage(brushCanvas, screenX - brushRadius, screenY - brushRadius);
+                    const key = `${tx},${ty}`;
+                    let alpha = 1.0;
+
+                    // 🌟 修复问题2：按距离计算透明度，彻底告别边缘重叠闪烁
+                    if (exploredTiles.has(key)) {
+                        alpha = 0; // 走过的地方，完全透明
+                    } else {
+                        // 检查周围一圈是否有走过的格子
+                        if (exploredTiles.has(`${tx-1},${ty}`) || exploredTiles.has(`${tx+1},${ty}`) || 
+                            exploredTiles.has(`${tx},${ty-1}`) || exploredTiles.has(`${tx},${ty+1}`)) {
+                            alpha = 0.25; // 渐变第一层
+                        } 
+                        // 检查周围两圈
+                        else if (exploredTiles.has(`${tx-2},${ty}`) || exploredTiles.has(`${tx+2},${ty}`) || 
+                                 exploredTiles.has(`${tx},${ty-2}`) || exploredTiles.has(`${tx},${ty+2}`)) {
+                            alpha = 0.6; // 渐变第二层
+                        }
+                        // 检查周围三圈
+                        else if (exploredTiles.has(`${tx-3},${ty}`) || exploredTiles.has(`${tx+3},${ty}`) || 
+                                 exploredTiles.has(`${tx},${ty-3}`) || exploredTiles.has(`${tx},${ty+3}`)) {
+                            alpha = 0.85; // 渐变第三层
+                        }
+                    }
+
+                    // 如果不需要完全黑，就绘制
+                    if (alpha > 0) {
+                        ctx.globalAlpha = alpha;
+                        // +1 像素是为了防止相邻网格之间出现细细的缝隙（发丝黑线）
+                        ctx.fillRect(tx * tileSize - camX, ty * tileSize - camY, tileSize + 1, tileSize + 1);
                     }
                 }
             }
-
-            // 将迷雾层叠加到主画布上
-            ctx.drawImage(fogCanvas, 0, 0);
+            
+            // 重置透明度，以免影响下一帧
+            ctx.globalAlpha = 1.0;
         }
 
         function gameLoop() {
