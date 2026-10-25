@@ -2,9 +2,8 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <!-- 关键：禁止移动端双击缩放和视口缩放 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>无限草地 - 平板触摸版</title>
+    <title>无限草地 - 迷雾探索版</title>
     <style>
         body, html {
             margin: 0;
@@ -13,18 +12,19 @@
             height: 100%;
             overflow: hidden;
             background-color: #000;
-            /* 禁止长按选中文字/图片，提升APP般的体验 */
             user-select: none;
             -webkit-user-select: none;
-            /* 禁止触摸时的蓝色高亮 */
             -webkit-tap-highlight-color: transparent;
         }
         canvas {
             display: block;
             image-rendering: pixelated;
             image-rendering: crisp-edges;
-            /* 触摸时阻止默认滚动行为 */
             touch-action: none; 
+            cursor: grab;
+        }
+        canvas:active {
+            cursor: grabbing;
         }
     </style>
 </head>
@@ -47,6 +47,22 @@
         const friction = 0.94;           
         // ==================================================
 
+        // ================= 迷雾配置区 =================
+        const tileSize = 32; // 探索记录网格大小（越小记录越精确，但计算量稍大）
+        const brushRadius = 160; // 开雾笔刷大小（玩家视野范围，适中偏大）
+        
+        // 记录探索过的网格 "x,y"
+        const exploredTiles = new Set(); 
+
+        // 创建离屏 Canvas 用于渲染迷雾
+        const fogCanvas = document.createElement('canvas');
+        const fogCtx = fogCanvas.getContext('2d');
+        
+        // 创建一个像素风渐变笔刷
+        const brushCanvas = document.createElement('canvas');
+        const brushCtx = brushCanvas.getContext('2d');
+        // ==============================================
+
         const grassImg = new Image();
         const playerImg = new Image();
         
@@ -66,6 +82,7 @@
                     playerW = playerTargetSize;
                     playerH = playerTargetSize * (playerImg.height / playerImg.width);
                 }
+                initBrush(); // 初始化笔刷
                 gameLoop();
             }
         }
@@ -74,6 +91,22 @@
         playerImg.onload = checkLoaded;
         grassImg.onerror = checkLoaded;
         playerImg.onerror = checkLoaded;
+
+        // 生成像素风渐变笔刷
+        function initBrush() {
+            brushCanvas.width = brushRadius * 2;
+            brushCanvas.height = brushRadius * 2;
+            brushCtx.imageSmoothingEnabled = false;
+            
+            // 用多层同心矩形来模拟像素风的渐变（阶梯状透明度）
+            // 从外往内画，步长为 8 像素，产生明显的像素阶梯感
+            for (let r = brushRadius; r > 0; r -= 8) {
+                // 越往里越不透明（擦除力越强）
+                const alpha = 1 - Math.pow(r / brushRadius, 2); 
+                brushCtx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+                brushCtx.fillRect(brushRadius - r, brushRadius - r, r * 2, r * 2);
+            }
+        }
 
         let playerX = 0;
         let playerY = 0;
@@ -87,59 +120,26 @@
         let mouseX = 0;
         let mouseY = 0;
 
-        // ================= 鼠标与触摸事件统一 =================
+        // --- 鼠标与触摸事件统一（保证双端兼容） ---
+        function startMove(x, y) { isMouseDown = true; mouseX = x; mouseY = y; }
+        function moveTo(x, y) { mouseX = x; mouseY = y; }
+        function endMove() { isMouseDown = false; }
 
-        function startMove(x, y) {
-            isMouseDown = true;
-            mouseX = x;
-            mouseY = y;
-        }
+        canvas.addEventListener('mousedown', (e) => { if (e.button === 0) startMove(e.clientX, e.clientY); });
+        window.addEventListener('mousemove', (e) => { if (isMouseDown) moveTo(e.clientX, e.clientY); });
+        window.addEventListener('mouseup', (e) => { if (e.button === 0) endMove(); });
 
-        function moveTo(x, y) {
-            mouseX = x;
-            mouseY = y;
-        }
-
-        function endMove() {
-            isMouseDown = false;
-        }
-
-        // --- 鼠标事件（PC端） ---
-        canvas.addEventListener('mousedown', (e) => {
-            if (e.button === 0) startMove(e.clientX, e.clientY);
-        });
-        window.addEventListener('mousemove', (e) => {
-            if (isMouseDown) moveTo(e.clientX, e.clientY);
-        });
-        window.addEventListener('mouseup', (e) => {
-            if (e.button === 0) endMove();
-        });
-
-        // --- 触摸事件（移动端/平板） ---
         canvas.addEventListener('touchstart', (e) => {
-            e.preventDefault(); // 阻止屏幕滚动/缩放
-            if (e.touches.length > 0) {
-                startMove(e.touches[0].clientX, e.touches[0].clientY);
-            }
-        }, { passive: false });
-
-        window.addEventListener('touchmove', (e) => {
-            e.preventDefault(); // 阻止屏幕滚动/缩放
-            if (isMouseDown && e.touches.length > 0) {
-                moveTo(e.touches[0].clientX, e.touches[0].clientY);
-            }
-        }, { passive: false });
-
-        window.addEventListener('touchend', (e) => {
             e.preventDefault();
-            endMove();
+            if (e.touches.length > 0) startMove(e.touches[0].clientX, e.touches[0].clientY);
         }, { passive: false });
-
-        window.addEventListener('touchcancel', (e) => {
-            endMove();
-        });
-
-        // ==================================================
+        window.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (isMouseDown && e.touches.length > 0) moveTo(e.touches[0].clientX, e.touches[0].clientY);
+        }, { passive: false });
+        window.addEventListener('touchend', (e) => { e.preventDefault(); endMove(); }, { passive: false });
+        window.addEventListener('touchcancel', endMove);
+        // ------------------------------------------
 
         function resizeCanvas() {
             const dpr = window.devicePixelRatio || 1;
@@ -148,17 +148,20 @@
 
             canvas.width = logicWidth * dpr;
             canvas.height = logicHeight * dpr;
-            
             canvas.style.width = logicWidth + 'px';
             canvas.style.height = logicHeight + 'px';
-            
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+            // 同步调整迷雾层大小
+            fogCanvas.width = logicWidth;
+            fogCanvas.height = logicHeight;
         }
 
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
 
         function update() {
+            // 1. 移动逻辑
             if (isMouseDown) {
                 const centerX = logicWidth / 2;
                 const centerY = logicHeight / 2;
@@ -172,33 +175,45 @@
                 if (distance > 10) { 
                     const effectiveDist = Math.min(distance, maxRadius);
                     const currentMaxSpeed = (effectiveDist / maxRadius) * maxSpeed;
-                    
                     targetVx = (dx / distance) * currentMaxSpeed;
                     targetVy = (dy / distance) * currentMaxSpeed;
                 }
 
                 velocityX += (targetVx - velocityX) * accelerationSmooth;
                 velocityY += (targetVy - velocityY) * accelerationSmooth;
-
             } else {
                 velocityX *= friction;
                 velocityY *= friction;
-
                 if (Math.abs(velocityX) < 0.05) velocityX = 0;
                 if (Math.abs(velocityY) < 0.05) velocityY = 0;
             }
 
             playerX += velocityX;
             playerY += velocityY;
+
+            // 2. 记录探索区域
+            // 将玩家当前所在的网格加入记录
+            const pTileX = Math.floor(playerX / tileSize);
+            const pTileY = Math.floor(playerY / tileSize);
+            
+            // 为了让开雾顺畅（防止因速度过快产生网格断层），把周围一圈的网格都记录上
+            const recordRadius = 2; 
+            for (let dx = -recordRadius; dx <= recordRadius; dx++) {
+                for (let dy = -recordRadius; dy <= recordRadius; dy++) {
+                    exploredTiles.add(`${pTileX + dx},${pTileY + dy}`);
+                }
+            }
         }
 
         function draw() {
             ctx.imageSmoothingEnabled = false;
             ctx.clearRect(0, 0, logicWidth, logicHeight);
 
+            const camX = playerX - logicWidth / 2;
+            const camY = playerY - logicHeight / 2;
+
+            // 1. 绘制底层草地
             if (grassImg.complete && grassImg.naturalHeight !== 0) {
-                const camX = playerX - logicWidth / 2;
-                const camY = playerY - logicHeight / 2;
                 const startX = Math.floor(camX / grassW) * grassW;
                 const startY = Math.floor(camY / grassH) * grassH;
                 const endX = camX + logicWidth;
@@ -211,11 +226,51 @@
                 }
             }
 
+            // 2. 绘制居中人物
             if (playerImg.complete && playerImg.naturalHeight !== 0) {
                 const playerScreenX = logicWidth / 2 - playerW / 2;
                 const playerScreenY = logicHeight / 2 - playerH / 2;
                 ctx.drawImage(playerImg, playerScreenX, playerScreenY, playerW, playerH);
             }
+
+            // 3. 绘制迷雾层
+            drawFog(camX, camY);
+        }
+
+        function drawFog(camX, camY) {
+            // 清空并填充纯黑迷雾
+            fogCtx.globalCompositeOperation = 'source-over';
+            fogCtx.clearRect(0, 0, logicWidth, logicHeight);
+            fogCtx.fillStyle = '#0f0f0f'; // 稍微留一点灰，不要纯黑死黑
+            fogCtx.fillRect(0, 0, logicWidth, logicHeight);
+
+            // 设置擦除模式
+            fogCtx.globalCompositeOperation = 'destination-out';
+            fogCtx.imageSmoothingEnabled = false; // 关键：保持像素笔刷的锐利边缘
+
+            // 计算当前屏幕需要渲染哪些网格
+            const startTileX = Math.floor(camX / tileSize) - 1;
+            const endTileX = Math.ceil((camX + logicWidth) / tileSize) + 1;
+            const startTileY = Math.floor(camY / tileSize) - 1;
+            const endTileY = Math.ceil((camY + logicHeight) / tileSize) + 1;
+
+            // 遍历屏幕范围内的所有网格
+            for (let tx = startTileX; tx <= endTileX; tx++) {
+                for (let ty = startTileY; ty <= endTileY; ty++) {
+                    // 如果这个网格在探索记录中
+                    if (exploredTiles.has(`${tx},${ty}`)) {
+                        // 计算网格中心在屏幕上的坐标
+                        const screenX = tx * tileSize + tileSize / 2 - camX;
+                        const screenY = ty * tileSize + tileSize / 2 - camY;
+                        
+                        // 画上我们的像素渐变笔刷
+                        fogCtx.drawImage(brushCanvas, screenX - brushRadius, screenY - brushRadius);
+                    }
+                }
+            }
+
+            // 将迷雾层叠加到主画布上
+            ctx.drawImage(fogCanvas, 0, 0);
         }
 
         function gameLoop() {
