@@ -44,7 +44,6 @@
         const cellSize = 300;           
         const spawnChance = 0.1;        
 
-        // 移动手感
         const maxSpeed = 5.5;          
         const maxRadius = 250;         
         const accelerationSmooth = 0.15; 
@@ -148,8 +147,9 @@
                             const hitH = grassH + 40;
                             if (clickWorldX > worldX - hitW / 2 && clickWorldX < worldX + hitW / 2 &&
                                 clickWorldY > worldY - hitH / 2 && clickWorldY < worldY + hitH / 2) {
+                                
                                 collectedGrassSet.add(key);
-                                // 🌟 移除了强制清零速度的代码，滑行中点击不再刹车
+                                // 🌟 移除了强制清零速度的代码，平滑滑行不再被打断
                                 return true; 
                             }
                         }
@@ -168,8 +168,9 @@
                             const hitH = pebbleH + 40;
                             if (clickWorldX > worldX - hitW / 2 && clickWorldX < worldX + hitW / 2 &&
                                 clickWorldY > worldY - hitH / 2 && clickWorldY < worldY + hitH / 2) {
+                                
                                 collectedPebbleSet.add(key);
-                                // 🌟 移除了强制清零速度的代码，滑行中点击不再刹车
+                                // 🌟 同上，移除了强制刹车
                                 return true; 
                             }
                         }
@@ -181,7 +182,9 @@
 
         canvas.addEventListener('mousedown', (e) => { 
             if (e.button === 0) {
+                // 如果收集成功，直接 return 阻断拖拽开始。此时 isMouseDown 仍然为 false，滑行继续。
                 if (tryCollect(e.clientX, e.clientY)) return;
+                
                 isMouseDown = true; 
                 mouseX = e.clientX; 
                 mouseY = e.clientY; 
@@ -204,6 +207,7 @@
             if (e.touches.length > 0) {
                 const touch = e.touches[0];
                 if (tryCollect(touch.clientX, touch.clientY)) return;
+                
                 isMouseDown = true;
                 mouseX = touch.clientX;
                 mouseY = touch.clientY;
