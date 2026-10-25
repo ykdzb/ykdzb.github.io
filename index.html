@@ -51,16 +51,20 @@
         // ================= 配置区 =================
         const bgTargetSize = 128;       // 背景图显示大小
         const playerTargetSize = 48;    // 人物大小
-        const itemTargetSize = 32;      // 草的显示大小
         
+        // 【重点修改区】
+        const itemTargetSize = 64;      // 草的显示大小（改大了）
+        
+        const cellSize = 150;           // 随机生成的网格大小（改大了，草就稀疏了）
+        const spawnChance = 0.12;       // 每个网格生成草的概率（改小了，更稀有）
+        
+        const collectRadius = 60;       // 自动拾取半径（稍微调大一点，方便吃到大草）
+
+        // 其他手感参数
         const maxSpeed = 5.5;          
         const maxRadius = 250;         
         const accelerationSmooth = 0.15; 
         const friction = 0.94;           
-
-        const cellSize = 80;            // 随机生成的网格大小（调小草更密，调大更稀疏）
-        const spawnChance = 0.3;        // 每个网格生成草的概率 (0.3 代表 30% 概率)
-        const collectRadius = 50;       // 自动拾取半径
         // ==========================================
 
         const collectedGrassSet = new Set();
@@ -83,7 +87,6 @@
         function checkLoaded() {
             imagesLoaded++;
             if (imagesLoaded >= 3) {
-                // 适配图片尺寸
                 if (bgImg.complete && bgImg.naturalHeight !== 0) {
                     bgW = bgTargetSize;
                     bgH = bgTargetSize * (bgImg.height / bgImg.width);
@@ -185,7 +188,7 @@
             playerY += velocityY;
         }
 
-        // 🌟 升级版随机哈希函数：散布更均匀，没有视觉规律
+        // 随机哈希函数
         function hash(x, y, seed = 0) {
             let n = x * 374761393 + y * 668265263 + seed * 144665;
             n = (n ^ (n >> 13)) * 1274126177;
@@ -195,7 +198,7 @@
         function draw() {
             ctx.imageSmoothingEnabled = false;
             
-            // 如果背景图加载失败，画一个绿色底色，绝不黑屏
+            // 兜底背景色
             if (!bgImg.complete || bgImg.naturalHeight === 0) {
                 ctx.fillStyle = '#3b7a3b'; 
                 ctx.fillRect(0, 0, logicWidth, logicHeight);
@@ -234,7 +237,6 @@
         function drawGrass(camX, camY) {
             if (!grassItemImg.complete || grassItemImg.naturalHeight === 0) return;
 
-            // 计算可见的网格范围
             const startCellX = Math.floor(camX / cellSize) - 1;
             const endCellX = Math.floor((camX + logicWidth) / cellSize) + 1;
             const startCellY = Math.floor(camY / cellSize) - 1;
@@ -243,9 +245,7 @@
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
                     
-                    // 判定当前格子是否生成草
                     if (hash(cx, cy, 1) < spawnChance) {
-                        // 在格子内部随机偏移位置
                         const offsetX = hash(cx, cy, 2) * cellSize;
                         const offsetY = hash(cx, cy, 3) * cellSize;
                         
@@ -253,12 +253,12 @@
                         const worldY = cy * cellSize + offsetY;
                         const key = `${Math.floor(worldX)},${Math.floor(worldY)}`;
 
-                        if (collectedGrassSet.has(key)) continue; // 已被收集
+                        if (collectedGrassSet.has(key)) continue; 
 
                         const screenX = worldX - camX;
                         const screenY = worldY - camY;
 
-                        // 绘制草
+                        // 绘制变大的草
                         ctx.drawImage(grassItemImg, screenX - itemW / 2, screenY - itemH / 2, itemW, itemH);
 
                         // 收集检测
