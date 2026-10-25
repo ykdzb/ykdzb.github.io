@@ -49,22 +49,21 @@
         const accelerationSmooth = 0.15; 
         const friction = 0.94;           
         
-        // UI 物品栏配置
-        const uiItemSize = 64;          // 物品栏图标大小
-        const uiGap = 30;               // 物品之间的间距
+        // UI 配置
+        const uiItemSize = 64;          // 底部图标大小
+        const uiGap = 15;               // 🌟 物品间距改小了，挨得更近
         // ==========================================
 
         // 收集数据
         const collectedGrassSet = new Set();
         const collectedPebbleSet = new Set();
         
-        // 物品栏数据
         const inventory = {
             grass: 0,
             pebble: 0
         };
 
-        // 图片资源
+        // 资源加载
         const bgImg = new Image();
         const playerImg = new Image();
         const grassImg = new Image();
@@ -75,7 +74,7 @@
         grassImg.src = './Game/picture/item/grass.png';
         pebbleImg.src = './Game/picture/item/pebble.png';
 
-        // 预加载数字图片 (0-9)
+        // 预加载数字图片
         const digitImgs = {};
         for (let i = 0; i <= 9; i++) {
             digitImgs[i] = new Image();
@@ -88,7 +87,6 @@
         let pebbleW = itemTargetSize, pebbleH = itemTargetSize;
 
         let imagesLoaded = 0;
-        // 只要主要图片加载完就可以开始了，数字图片没加载完也不影响移动
         function checkLoaded() {
             imagesLoaded++;
             if (imagesLoaded >= 4) {
@@ -116,7 +114,6 @@
         playerImg.onload = checkLoaded;
         grassImg.onload = checkLoaded;
         pebbleImg.onload = checkLoaded;
-        // 兜底防错
         bgImg.onerror = checkLoaded;
         playerImg.onerror = checkLoaded;
         grassImg.onerror = checkLoaded;
@@ -155,7 +152,6 @@
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
                     
-                    // 检查草
                     if (hash(cx, cy, 1) < spawnChance) {
                         const offsetX = hash(cx, cy, 2) * cellSize;
                         const offsetY = hash(cx, cy, 3) * cellSize;
@@ -164,20 +160,18 @@
                         const key = `${Math.floor(worldX)},${Math.floor(worldY)}`;
 
                         if (!collectedGrassSet.has(key)) {
-                            // 🌟 判定框改小：只加 10 像素的宽容度
-                            const hitW = grassW + 10;
-                            const hitH = grassH + 10;
+                            const hitW = grassW + 5;
+                            const hitH = grassH + 5;
                             if (clickWorldX > worldX - hitW / 2 && clickWorldX < worldX + hitW / 2 &&
                                 clickWorldY > worldY - hitH / 2 && clickWorldY < worldY + hitH / 2) {
                                 
                                 collectedGrassSet.add(key);
-                                inventory.grass++; // 数量增加
+                                inventory.grass++;
                                 return true; 
                             }
                         }
                     }
 
-                    // 检查石头
                     if (hash(cx, cy, 4) < spawnChance) {
                         const offsetX = hash(cx, cy, 5) * cellSize;
                         const offsetY = hash(cx, cy, 6) * cellSize;
@@ -186,14 +180,13 @@
                         const key = `${Math.floor(worldX)},${Math.floor(worldY)}`;
 
                         if (!collectedPebbleSet.has(key)) {
-                            // 🌟 判定框改小：只加 10 像素的宽容度
-                            const hitW = pebbleW + 10;
-                            const hitH = pebbleH + 10;
+                            const hitW = pebbleW + 5;
+                            const hitH = pebbleH + 5;
                             if (clickWorldX > worldX - hitW / 2 && clickWorldX < worldX + hitW / 2 &&
                                 clickWorldY > worldY - hitH / 2 && clickWorldY < worldY + hitH / 2) {
                                 
                                 collectedPebbleSet.add(key);
-                                inventory.pebble++; // 数量增加
+                                inventory.pebble++;
                                 return true; 
                             }
                         }
@@ -308,7 +301,6 @@
             const camX = Math.round(playerX - logicWidth / 2);
             const camY = Math.round(playerY - logicHeight / 2);
 
-            // 绘制背景
             if (bgImg.complete && bgImg.naturalHeight !== 0) {
                 const startX = Math.floor(camX / bgW) * bgW;
                 const startY = Math.floor(camY / bgH) * bgH;
@@ -322,7 +314,6 @@
                 }
             }
 
-            // 绘制物品
             const startCellX = Math.floor(camX / cellSize) - 1;
             const endCellX = Math.floor((camX + logicWidth) / cellSize) + 1;
             const startCellY = Math.floor(camY / cellSize) - 1;
@@ -337,7 +328,6 @@
                         const worldX = cx * cellSize + offsetX;
                         const worldY = cy * cellSize + offsetY;
                         const key = `${Math.floor(worldX)},${Math.floor(worldY)}`;
-
                         if (!collectedGrassSet.has(key)) {
                             ctx.drawImage(grassImg, (worldX - camX) - grassW / 2, (worldY - camY) - grassH / 2, grassW, grassH);
                         }
@@ -349,7 +339,6 @@
                         const worldX = cx * cellSize + offsetX;
                         const worldY = cy * cellSize + offsetY;
                         const key = `${Math.floor(worldX)},${Math.floor(worldY)}`;
-
                         if (!collectedPebbleSet.has(key)) {
                             ctx.drawImage(pebbleImg, (worldX - camX) - pebbleW / 2, (worldY - camY) - pebbleH / 2, pebbleW, pebbleH);
                         }
@@ -357,57 +346,48 @@
                 }
             }
 
-            // 绘制人物
             if (playerImg.complete && playerImg.naturalHeight !== 0) {
                 const playerScreenX = Math.round(logicWidth / 2 - playerW / 2);
                 const playerScreenY = Math.round(logicHeight / 2 - playerH / 2);
                 ctx.drawImage(playerImg, playerScreenX, playerScreenY, playerW, playerH);
             }
 
-            // 🌟 绘制底部物品栏 UI
             drawInventoryUI();
         }
 
-        // 绘制底部物品栏
         function drawInventoryUI() {
-            // 收集当前有数量的物品类型
             const activeItems = [];
             if (inventory.grass > 0) activeItems.push({ type: 'grass', img: grassImg, count: inventory.grass });
             if (inventory.pebble > 0) activeItems.push({ type: 'pebble', img: pebbleImg, count: inventory.pebble });
 
             if (activeItems.length === 0) return;
 
-            // 计算总宽度，用于完美居中
             const totalWidth = activeItems.length * uiItemSize + (activeItems.length - 1) * uiGap;
             let startX = (logicWidth - totalWidth) / 2;
-            const startY = logicHeight - uiItemSize - 20; // 距离底部 20 像素
+            const startY = logicHeight - uiItemSize - 20;
+
+            // 🌟 彻底移除了外面的灰色半透明壳
 
             for (let i = 0; i < activeItems.length; i++) {
                 const item = activeItems[i];
                 const itemX = startX + i * (uiItemSize + uiGap);
                 const itemY = startY;
 
-                // 画个半透明底框提升可视度（可选）
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-                ctx.fillRect(itemX - 4, itemY - 4, uiItemSize + 8, uiItemSize + 8);
-
-                // 绘制物品图标
                 if (item.img.complete && item.img.naturalHeight !== 0) {
                     ctx.drawImage(item.img, itemX, itemY, uiItemSize, uiItemSize);
                 }
 
-                // 绘制数量数字（右上角）
-                drawNumber(item.count, itemX + uiItemSize - 10, itemY + 10);
+                // 🌟 把数字画在图标右上角，坐标微微上浮和右移了一点
+                drawNumber(item.count, itemX + uiItemSize + 8, itemY - 12);
             }
         }
 
-        // 绘制多位数（支持 10, 100 等）
         function drawNumber(num, endX, endY) {
             const str = num.toString();
             let currentRightX = endX;
-            const numScale = 0.5; // 数字缩小一半，避免太大
+            // 🌟 将缩放比例从 0.6 提高到 2.0，数字瞬间变大，且保持长方形比例
+            const numScale = 2.0; 
 
-            // 从个位开始往左画
             for (let i = str.length - 1; i >= 0; i--) {
                 const digit = str[i];
                 const img = digitImgs[digit];
@@ -416,20 +396,20 @@
                     const w = img.width * numScale;
                     const h = img.height * numScale;
                     
-                    // 画阴影增加辨识度
-                    ctx.drawImage(img, currentRightX - w + 2, endY - h + 2, w, h); 
-                    // 画数字
-                    ctx.drawImage(img, currentRightX - w, endY - h, w, h);
+                    // 阴影（可选，如果你觉得不需要可以删掉这两行）
+                    ctx.drawImage(img, currentRightX - w + 2, endY + 2, w, h); 
+                    // 像素图本体
+                    ctx.drawImage(img, currentRightX - w, endY, w, h);
 
-                    currentRightX -= (w - 2); // 减去一点间距，让数字紧凑些
+                    currentRightX -= (w + 2); // 字符间距
                 } else {
-                    // 如果没有数字图片，用系统字体兜底
+                    // 兜底：没图时的白字（也跟着放大了）
                     ctx.fillStyle = '#fff';
-                    ctx.font = 'bold 24px "Courier New", Courier, monospace';
+                    ctx.font = 'bold 32px "Courier New", Courier, monospace';
                     ctx.textAlign = 'right';
-                    ctx.textBaseline = 'bottom';
-                    ctx.fillText(str, endX, endY + 10);
-                    return; // 兜底字体直接整体画完，不用循环了
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(str, endX, endY);
+                    return; 
                 }
             }
         }
