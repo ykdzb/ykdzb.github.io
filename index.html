@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>无限草地 - 精准点击收集版</title>
+    <title>无限草地 - 拾荒版</title>
     <style>
         body, html {
             margin: 0;
@@ -26,22 +26,10 @@
         canvas:active {
             cursor: grabbing;
         }
-        #ui-layer {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            color: #fff;
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 28px;
-            font-weight: bold;
-            text-shadow: 2px 2px 0 #000;
-            pointer-events: none;
-        }
     </style>
 </head>
 <body>
 
-    <div id="ui-layer">🌿 收集的草: <span id="grass-count">0</span></div>
     <canvas id="gameCanvas"></canvas>
 
     <script>
@@ -49,13 +37,13 @@
         const ctx = canvas.getContext('2d');
 
         // ================= 核心配置区 =================
-        const bgTargetSize = 128;       
-        const playerTargetSize = 48;    
+        const bgTargetSize = 128;       // 背景图显示大小
+        const playerTargetSize = 48;    // 人物大小
         
-        // 草的尺寸（极大）与生成网格（极稀）
-        const itemTargetSize = 200;     
-        const cellSize = 600;           
-        const spawnChance = 0.08;       
+        // 🌟 恢复适中的大小和密度
+        const itemTargetSize = 100;     // 物品显示大小
+        const cellSize = 300;           // 网格大小
+        const spawnChance = 0.1;        // 生成概率（10%）
 
         // 移动手感
         const maxSpeed = 5.5;          
@@ -64,25 +52,30 @@
         const friction = 0.94;           
         // ==========================================
 
+        // 分别记录草地和石头被收集的状态
         const collectedGrassSet = new Set();
-        let grassCount = 0;
+        const collectedPebbleSet = new Set();
 
         const bgImg = new Image();
         const playerImg = new Image();
-        const grassItemImg = new Image();
+        const grassImg = new Image();
+        const pebbleImg = new Image();
         
         bgImg.src = './Game/picture/item/grass_land.png';
         playerImg.src = './Game/picture/mob/player.png';
-        grassItemImg.src = './Game/picture/item/grass.png';
+        grassImg.src = './Game/picture/item/grass.png';
+        pebbleImg.src = './Game/picture/item/pebble.png'; // 新增石头
 
         let bgW = bgTargetSize, bgH = bgTargetSize;
         let playerW = playerTargetSize, playerH = playerTargetSize;
-        let itemW = itemTargetSize, itemH = itemTargetSize;
+        let grassW = itemTargetSize, grassH = itemTargetSize;
+        let pebbleW = itemTargetSize, pebbleH = itemTargetSize;
 
         let imagesLoaded = 0;
         function checkLoaded() {
             imagesLoaded++;
-            if (imagesLoaded >= 3) {
+            // 确保4张图片全部加载完毕
+            if (imagesLoaded >= 4) {
                 if (bgImg.complete && bgImg.naturalHeight !== 0) {
                     bgW = bgTargetSize;
                     bgH = bgTargetSize * (bgImg.height / bgImg.width);
@@ -91,9 +84,13 @@
                     playerW = playerTargetSize;
                     playerH = playerTargetSize * (playerImg.height / playerImg.width);
                 }
-                if (grassItemImg.complete && grassItemImg.naturalHeight !== 0) {
-                    itemW = itemTargetSize;
-                    itemH = itemTargetSize * (grassItemImg.height / grassItemImg.width);
+                if (grassImg.complete && grassImg.naturalHeight !== 0) {
+                    grassW = itemTargetSize;
+                    grassH = itemTargetSize * (grassImg.height / grassImg.width);
+                }
+                if (pebbleImg.complete && pebbleImg.naturalHeight !== 0) {
+                    pebbleW = itemTargetSize;
+                    pebbleH = itemTargetSize * (pebbleImg.height / pebbleImg.width);
                 }
                 gameLoop();
             }
@@ -101,10 +98,12 @@
         
         bgImg.onload = checkLoaded;
         playerImg.onload = checkLoaded;
-        grassItemImg.onload = checkLoaded;
+        grassImg.onload = checkLoaded;
+        pebbleImg.onload = checkLoaded;
         bgImg.onerror = checkLoaded;
         playerImg.onerror = checkLoaded;
-        grassItemImg.onerror = checkLoaded;
+        grassImg.onerror = checkLoaded;
+        pebbleImg.onerror = checkLoaded;
 
         let playerX = 0;
         let playerY = 0;
@@ -124,53 +123,59 @@
             return ((n ^ (n >> 16)) >>> 0) / 4294967296;
         }
 
-        // 🌟 核心点击判定逻辑
+        // 🌟 核心点击判定逻辑（同时判定草和石头）
         function tryCollect(screenX, screenY) {
-            if (!grassItemImg.complete || grassItemImg.naturalHeight === 0) return false;
-
             const camX = Math.round(playerX - logicWidth / 2);
             const camY = Math.round(playerY - logicHeight / 2);
             
-            // 屏幕坐标转为世界坐标
             const clickWorldX = screenX + camX;
             const clickWorldY = screenY + camY;
 
-            // 把遍历的范围再向四周扩大一圈（加上草自身的宽度），防止漏掉边缘的草
-            const startCellX = Math.floor((camX - itemW) / cellSize) - 1;
-            const endCellX = Math.floor((camX + logicWidth + itemW) / cellSize) + 1;
-            const startCellY = Math.floor((camY - itemH) / cellSize) - 1;
-            const endCellY = Math.floor((camY + logicHeight + itemH) / cellSize) + 1;
+            const startCellX = Math.floor((camX - itemTargetSize) / cellSize) - 1;
+            const endCellX = Math.floor((camX + logicWidth + itemTargetSize) / cellSize) + 1;
+            const startCellY = Math.floor((camY - itemTargetSize) / cellSize) - 1;
+            const endCellY = Math.floor((camY + logicHeight + itemTargetSize) / cellSize) + 1;
 
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
+                    
+                    // 检查草 (种子1)
                     if (hash(cx, cy, 1) < spawnChance) {
                         const offsetX = hash(cx, cy, 2) * cellSize;
                         const offsetY = hash(cx, cy, 3) * cellSize;
-                        
                         const worldX = cx * cellSize + offsetX;
                         const worldY = cy * cellSize + offsetY;
                         const key = `${Math.floor(worldX)},${Math.floor(worldY)}`;
 
-                        if (collectedGrassSet.has(key)) continue; 
+                        if (!collectedGrassSet.has(key)) {
+                            const hitW = grassW + 40;
+                            const hitH = grassH + 40;
+                            if (clickWorldX > worldX - hitW / 2 && clickWorldX < worldX + hitW / 2 &&
+                                clickWorldY > worldY - hitH / 2 && clickWorldY < worldY + hitH / 2) {
+                                collectedGrassSet.add(key);
+                                velocityX = 0; velocityY = 0; isMouseDown = false; // 停止移动
+                                return true; 
+                            }
+                        }
+                    }
 
-                        // 判定点击是否落在草的区域内（加宽判定框，手感更好）
-                        const hitW = itemW + 40;
-                        const hitH = itemH + 40;
-                        
-                        if (clickWorldX > worldX - hitW / 2 && clickWorldX < worldX + hitW / 2 &&
-                            clickWorldY > worldY - hitH / 2 && clickWorldY < worldY + hitH / 2) {
-                            
-                            // 收集成功！
-                            collectedGrassSet.add(key);
-                            grassCount++;
-                            document.getElementById('grass-count').innerText = grassCount;
-                            
-                            // 🚨 最关键的一步：立刻清空速度，强制停止角色移动！
-                            velocityX = 0;
-                            velocityY = 0;
-                            isMouseDown = false;
-                            
-                            return true; 
+                    // 检查石头 (种子4，与草独立)
+                    if (hash(cx, cy, 4) < spawnChance) {
+                        const offsetX = hash(cx, cy, 5) * cellSize;
+                        const offsetY = hash(cx, cy, 6) * cellSize;
+                        const worldX = cx * cellSize + offsetX;
+                        const worldY = cy * cellSize + offsetY;
+                        const key = `${Math.floor(worldX)},${Math.floor(worldY)}`;
+
+                        if (!collectedPebbleSet.has(key)) {
+                            const hitW = pebbleW + 40;
+                            const hitH = pebbleH + 40;
+                            if (clickWorldX > worldX - hitW / 2 && clickWorldX < worldX + hitW / 2 &&
+                                clickWorldY > worldY - hitH / 2 && clickWorldY < worldY + hitH / 2) {
+                                collectedPebbleSet.add(key);
+                                velocityX = 0; velocityY = 0; isMouseDown = false; // 停止移动
+                                return true; 
+                            }
                         }
                     }
                 }
@@ -178,12 +183,10 @@
             return false;
         }
 
-        // --- 鼠标与触摸事件重构 ---
+        // --- 鼠标与触摸事件 ---
         canvas.addEventListener('mousedown', (e) => { 
             if (e.button === 0) {
-                // 如果点中了草，tryCollect 返回 true，直接 return，角色绝不移动
                 if (tryCollect(e.clientX, e.clientY)) return;
-                // 没点中草，才开始移动
                 isMouseDown = true; 
                 mouseX = e.clientX; 
                 mouseY = e.clientY; 
@@ -205,7 +208,6 @@
             e.preventDefault();
             if (e.touches.length > 0) {
                 const touch = e.touches[0];
-                // 同上，如果点中草，阻断移动
                 if (tryCollect(touch.clientX, touch.clientY)) return;
                 isMouseDown = true;
                 mouseX = touch.clientX;
@@ -301,35 +303,44 @@
                 }
             }
 
-            // 草
-            if (grassItemImg.complete && grassItemImg.naturalHeight !== 0) {
-                const startCellX = Math.floor(camX / cellSize) - 1;
-                const endCellX = Math.floor((camX + logicWidth) / cellSize) + 1;
-                const startCellY = Math.floor(camY / cellSize) - 1;
-                const endCellY = Math.floor((camY + logicHeight) / cellSize) + 1;
+            // 绘制草和石头
+            const startCellX = Math.floor(camX / cellSize) - 1;
+            const endCellX = Math.floor((camX + logicWidth) / cellSize) + 1;
+            const startCellY = Math.floor(camY / cellSize) - 1;
+            const endCellY = Math.floor((camY + logicHeight) / cellSize) + 1;
 
-                for (let cx = startCellX; cx <= endCellX; cx++) {
-                    for (let cy = startCellY; cy <= endCellY; cy++) {
-                        if (hash(cx, cy, 1) < spawnChance) {
-                            const offsetX = hash(cx, cy, 2) * cellSize;
-                            const offsetY = hash(cx, cy, 3) * cellSize;
-                            
-                            const worldX = cx * cellSize + offsetX;
-                            const worldY = cy * cellSize + offsetY;
-                            const key = `${Math.floor(worldX)},${Math.floor(worldY)}`;
+            for (let cx = startCellX; cx <= endCellX; cx++) {
+                for (let cy = startCellY; cy <= endCellY; cy++) {
+                    
+                    // 画草
+                    if (grassImg.complete && grassImg.naturalHeight !== 0 && hash(cx, cy, 1) < spawnChance) {
+                        const offsetX = hash(cx, cy, 2) * cellSize;
+                        const offsetY = hash(cx, cy, 3) * cellSize;
+                        const worldX = cx * cellSize + offsetX;
+                        const worldY = cy * cellSize + offsetY;
+                        const key = `${Math.floor(worldX)},${Math.floor(worldY)}`;
 
-                            if (collectedGrassSet.has(key)) continue; 
+                        if (!collectedGrassSet.has(key)) {
+                            ctx.drawImage(grassImg, (worldX - camX) - grassW / 2, (worldY - camY) - grassH / 2, grassW, grassH);
+                        }
+                    }
 
-                            const screenX = worldX - camX;
-                            const screenY = worldY - camY;
+                    // 画石头
+                    if (pebbleImg.complete && pebbleImg.naturalHeight !== 0 && hash(cx, cy, 4) < spawnChance) {
+                        const offsetX = hash(cx, cy, 5) * cellSize;
+                        const offsetY = hash(cx, cy, 6) * cellSize;
+                        const worldX = cx * cellSize + offsetX;
+                        const worldY = cy * cellSize + offsetY;
+                        const key = `${Math.floor(worldX)},${Math.floor(worldY)}`;
 
-                            ctx.drawImage(grassItemImg, screenX - itemW / 2, screenY - itemH / 2, itemW, itemH);
+                        if (!collectedPebbleSet.has(key)) {
+                            ctx.drawImage(pebbleImg, (worldX - camX) - pebbleW / 2, (worldY - camY) - pebbleH / 2, pebbleW, pebbleH);
                         }
                     }
                 }
             }
 
-            // 人物
+            // 绘制人物
             if (playerImg.complete && playerImg.naturalHeight !== 0) {
                 const playerScreenX = Math.round(logicWidth / 2 - playerW / 2);
                 const playerScreenY = Math.round(logicHeight / 2 - playerH / 2);
