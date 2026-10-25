@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>无限草地 - 点击收集版</title>
+    <title>无限草地 - 精准点击收集版</title>
     <style>
         body, html {
             margin: 0;
@@ -49,14 +49,13 @@
         const ctx = canvas.getContext('2d');
 
         // ================= 核心配置区 =================
-        const bgTargetSize = 128;       // 背景图显示大小
-        const playerTargetSize = 48;    // 人物大小
+        const bgTargetSize = 128;       
+        const playerTargetSize = 48;    
         
-        // 【重点调整区】
-        const itemTargetSize = 200;     // 草的显示大小（再大1倍！）
-        
-        const cellSize = 600;           // 随机生成的网格大小（再稀疏1倍！）
-        const spawnChance = 0.08;       // 生成概率（8%）
+        // 草的尺寸（极大）与生成网格（极稀）
+        const itemTargetSize = 200;     
+        const cellSize = 600;           
+        const spawnChance = 0.08;       
 
         // 移动手感
         const maxSpeed = 5.5;          
@@ -119,23 +118,28 @@
         let mouseX = 0;
         let mouseY = 0;
 
-        // 🌟 新增：尝试收集草的逻辑
-        // 如果点中草返回 true，如果点空地返回 false
+        function hash(x, y, seed = 0) {
+            let n = x * 374761393 + y * 668265263 + seed * 144665;
+            n = (n ^ (n >> 13)) * 1274126177;
+            return ((n ^ (n >> 16)) >>> 0) / 4294967296;
+        }
+
+        // 🌟 核心点击判定逻辑
         function tryCollect(screenX, screenY) {
             if (!grassItemImg.complete || grassItemImg.naturalHeight === 0) return false;
 
             const camX = Math.round(playerX - logicWidth / 2);
             const camY = Math.round(playerY - logicHeight / 2);
             
-            // 将鼠标/手指点击的屏幕坐标，转换为世界坐标
+            // 屏幕坐标转为世界坐标
             const clickWorldX = screenX + camX;
             const clickWorldY = screenY + camY;
 
-            // 遍历附近几个网格，看看点没点中草
-            const startCellX = Math.floor(camX / cellSize) - 1;
-            const endCellX = Math.floor((camX + logicWidth) / cellSize) + 1;
-            const startCellY = Math.floor(camY / cellSize) - 1;
-            const endCellY = Math.floor((camY + logicHeight) / cellSize) + 1;
+            // 把遍历的范围再向四周扩大一圈（加上草自身的宽度），防止漏掉边缘的草
+            const startCellX = Math.floor((camX - itemW) / cellSize) - 1;
+            const endCellX = Math.floor((camX + logicWidth + itemW) / cellSize) + 1;
+            const startCellY = Math.floor((camY - itemH) / cellSize) - 1;
+            const endCellY = Math.floor((camY + logicHeight + itemH) / cellSize) + 1;
 
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
@@ -149,17 +153,24 @@
 
                         if (collectedGrassSet.has(key)) continue; 
 
-                        // 判定点击位置是否在草的正方形范围内（稍微放宽一点判定范围，提升手感）
-                        const hitW = itemW + 20;
-                        const hitH = itemH + 20;
+                        // 判定点击是否落在草的区域内（加宽判定框，手感更好）
+                        const hitW = itemW + 40;
+                        const hitH = itemH + 40;
                         
                         if (clickWorldX > worldX - hitW / 2 && clickWorldX < worldX + hitW / 2 &&
                             clickWorldY > worldY - hitH / 2 && clickWorldY < worldY + hitH / 2) {
                             
+                            // 收集成功！
                             collectedGrassSet.add(key);
                             grassCount++;
                             document.getElementById('grass-count').innerText = grassCount;
-                            return true; // 成功点中草！
+                            
+                            // 🚨 最关键的一步：立刻清空速度，强制停止角色移动！
+                            velocityX = 0;
+                            velocityY = 0;
+                            isMouseDown = false;
+                            
+                            return true; 
                         }
                     }
                 }
@@ -167,38 +178,55 @@
             return false;
         }
 
-        // --- 鼠标与触摸事件 ---
-        function startMove(x, y) { isMouseDown = true; mouseX = x; mouseY = y; }
-        function moveTo(x, y) { mouseX = x; mouseY = y; }
-        function endMove() { isMouseDown = false; }
-
+        // --- 鼠标与触摸事件重构 ---
         canvas.addEventListener('mousedown', (e) => { 
             if (e.button === 0) {
-                // 先判定是否点中草，点中了就收集，不开始移动
+                // 如果点中了草，tryCollect 返回 true，直接 return，角色绝不移动
                 if (tryCollect(e.clientX, e.clientY)) return;
-                startMove(e.clientX, e.clientY); 
+                // 没点中草，才开始移动
+                isMouseDown = true; 
+                mouseX = e.clientX; 
+                mouseY = e.clientY; 
             }
         });
         
-        window.addEventListener('mousemove', (e) => { if (isMouseDown) moveTo(e.clientX, e.clientY); });
-        window.addEventListener('mouseup', (e) => { if (e.button === 0) endMove(); });
+        window.addEventListener('mousemove', (e) => { 
+            if (isMouseDown) { 
+                mouseX = e.clientX; 
+                mouseY = e.clientY; 
+            } 
+        });
+        
+        window.addEventListener('mouseup', (e) => { 
+            if (e.button === 0) isMouseDown = false; 
+        });
 
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
             if (e.touches.length > 0) {
                 const touch = e.touches[0];
-                // 先判定是否点中草
+                // 同上，如果点中草，阻断移动
                 if (tryCollect(touch.clientX, touch.clientY)) return;
-                startMove(touch.clientX, touch.clientY);
+                isMouseDown = true;
+                mouseX = touch.clientX;
+                mouseY = touch.clientY;
             }
         }, { passive: false });
         
         window.addEventListener('touchmove', (e) => {
             e.preventDefault();
-            if (isMouseDown && e.touches.length > 0) moveTo(e.touches[0].clientX, e.touches[0].clientY);
+            if (isMouseDown && e.touches.length > 0) {
+                mouseX = e.touches[0].clientX;
+                mouseY = e.touches[0].clientY;
+            }
         }, { passive: false });
-        window.addEventListener('touchend', (e) => { e.preventDefault(); endMove(); }, { passive: false });
-        window.addEventListener('touchcancel', endMove);
+        
+        window.addEventListener('touchend', (e) => { 
+            e.preventDefault(); 
+            isMouseDown = false; 
+        }, { passive: false });
+        
+        window.addEventListener('touchcancel', () => { isMouseDown = false; });
 
         function resizeCanvas() {
             const dpr = window.devicePixelRatio || 1;
@@ -246,12 +274,6 @@
             playerY += velocityY;
         }
 
-        function hash(x, y, seed = 0) {
-            let n = x * 374761393 + y * 668265263 + seed * 144665;
-            n = (n ^ (n >> 13)) * 1274126177;
-            return ((n ^ (n >> 16)) >>> 0) / 4294967296;
-        }
-
         function draw() {
             ctx.imageSmoothingEnabled = false;
             
@@ -265,6 +287,7 @@
             const camX = Math.round(playerX - logicWidth / 2);
             const camY = Math.round(playerY - logicHeight / 2);
 
+            // 背景
             if (bgImg.complete && bgImg.naturalHeight !== 0) {
                 const startX = Math.floor(camX / bgW) * bgW;
                 const startY = Math.floor(camY / bgH) * bgH;
@@ -278,7 +301,7 @@
                 }
             }
 
-            // 绘制草
+            // 草
             if (grassItemImg.complete && grassItemImg.naturalHeight !== 0) {
                 const startCellX = Math.floor(camX / cellSize) - 1;
                 const endCellX = Math.floor((camX + logicWidth) / cellSize) + 1;
@@ -306,7 +329,7 @@
                 }
             }
 
-            // 绘制人物
+            // 人物
             if (playerImg.complete && playerImg.naturalHeight !== 0) {
                 const playerScreenX = Math.round(logicWidth / 2 - playerW / 2);
                 const playerScreenY = Math.round(logicHeight / 2 - playerH / 2);
