@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>无限草地 - 像素迷雾完美版</title>
+    <title>无限草地 - 探索收集版</title>
     <style>
         body, html {
             margin: 0;
@@ -26,9 +26,24 @@
         canvas:active {
             cursor: grabbing;
         }
+        /* 左上角的 UI 界面 */
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #fff;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 2px 2px 0 #000;
+            pointer-events: none; /* 防止遮挡鼠标点击 */
+        }
     </style>
 </head>
 <body>
+
+    <!-- UI 层 -->
+    <div id="ui-layer">🌿 收集的草: <span id="grass-count">0</span></div>
 
     <canvas id="gameCanvas"></canvas>
 
@@ -37,8 +52,9 @@
         const ctx = canvas.getContext('2d');
 
         // ================= 核心手感配置区 =================
-        const grassTargetSize = 128;   
-        const playerTargetSize = 48;   
+        const grassLandTargetSize = 128; // 背景草地大小
+        const playerTargetSize = 48;     // 人物大小
+        const grassItemTargetSize = 32;  // 收集物草的大小
         
         const maxSpeed = 5.5;          
         const maxRadius = 250;         
@@ -47,42 +63,55 @@
         const friction = 0.94;           
         // ==================================================
 
-        // ================= 迷雾配置区 =================
-        // 网格越小，渐变的像素阶梯越多，但也越吃性能。
-        // 8x8 是像素风最佳的平衡点。
-        const tileSize = 8; 
+        // ================= 物品生成配置区 =================
+        const chunkSize = 256;       // 每个区块的大小（像素）
+        const grassPerChunk = 8;     // 每个区块生成多少株草（密度）
+        const collectRadius = 50;    // 自动收集半径（人物走到多近会被收集）
         
-        // 记录探索过的网格 "x,y"
-        const exploredTiles = new Set(); 
-        // ==============================================
+        const collectedGrassSet = new Set(); // 记录已经拔掉的草的世界坐标
+        let grassCount = 0;                  // 收集计数
+        // ==================================================
 
-        const grassImg = new Image();
+        // 加载图片
+        const bgImg = new Image();
         const playerImg = new Image();
+        const grassItemImg = new Image();
         
-        grassImg.src = './Game/picture/item/grass.png';
+        bgImg.src = './Game/picture/item/grass_land.png';
         playerImg.src = './Game/picture/mob/player.png';
+        grassItemImg.src = './Game/picture/item/grass.png';
 
-        let grassW = grassTargetSize, grassH = grassTargetSize;
+        let bgW = grassLandTargetSize, bgH = grassLandTargetSize;
         let playerW = playerTargetSize, playerH = playerTargetSize;
+        let itemW = grassItemTargetSize, itemH = grassItemTargetSize;
 
         let imagesLoaded = 0;
         function checkLoaded() {
             imagesLoaded++;
-            if (imagesLoaded >= 2) {
-                if (grassImg.complete && grassImg.naturalHeight !== 0 && playerImg.complete && playerImg.naturalHeight !== 0) {
-                    grassW = grassTargetSize;
-                    grassH = grassTargetSize * (grassImg.height / grassImg.width);
+            // 确保图片加载完毕（或者出错）后开始游戏
+            if (imagesLoaded >= 3) {
+                if (bgImg.complete && bgImg.naturalHeight !== 0) {
+                    bgW = grassLandTargetSize;
+                    bgH = grassLandTargetSize * (bgImg.height / bgImg.width);
+                }
+                if (playerImg.complete && playerImg.naturalHeight !== 0) {
                     playerW = playerTargetSize;
                     playerH = playerTargetSize * (playerImg.height / playerImg.width);
+                }
+                if (grassItemImg.complete && grassItemImg.naturalHeight !== 0) {
+                    itemW = grassItemTargetSize;
+                    itemH = grassItemTargetSize * (grassItemImg.height / grassItemImg.width);
                 }
                 gameLoop();
             }
         }
         
-        grassImg.onload = checkLoaded;
+        bgImg.onload = checkLoaded;
         playerImg.onload = checkLoaded;
-        grassImg.onerror = checkLoaded;
+        grassItemImg.onload = checkLoaded;
+        bgImg.onerror = checkLoaded;
         playerImg.onerror = checkLoaded;
+        grassItemImg.onerror = checkLoaded;
 
         let playerX = 0;
         let playerY = 0;
@@ -133,7 +162,7 @@
         resizeCanvas();
 
         function update() {
-            // 1. 移动逻辑
+            // 移动逻辑
             if (isMouseDown) {
                 const centerX = logicWidth / 2;
                 const centerY = logicHeight / 2;
@@ -162,99 +191,94 @@
 
             playerX += velocityX;
             playerY += velocityY;
+        }
 
-            // 2. 记录探索区域（大范围记录，保证视野开阔）
-            const pTileX = Math.floor(playerX / tileSize);
-            const pTileY = Math.floor(playerY / tileSize);
-            
-            // 记录玩家周围 14 个格子的半径
-            const recordRadius = 14; 
-            for (let dx = -recordRadius; dx <= recordRadius; dx++) {
-                for (let dy = -recordRadius; dy <= recordRadius; dy++) {
-                    exploredTiles.add(`${pTileX + dx},${pTileY + dy}`);
-                }
-            }
+        // 🌟 核心算法：基于坐标的伪随机数生成器 (保证无论何时回到该区块，生成的草位置都一致)
+        function pseudoRandom(x, y, seed) {
+            let n = Math.sin(x * 12.9898 + y * 78.233 + seed) * 43758.5453;
+            return n - Math.floor(n);
         }
 
         function draw() {
             ctx.imageSmoothingEnabled = false;
             ctx.clearRect(0, 0, logicWidth, logicHeight);
 
-            // 🌟 修复问题1：强制取整相机坐标，消除小数引起的错位和抖动
+            // 强制取整相机坐标，防止背景和物品错位抖动
             const camX = Math.round(playerX - logicWidth / 2);
             const camY = Math.round(playerY - logicHeight / 2);
 
-            // 1. 绘制底层草地
-            if (grassImg.complete && grassImg.naturalHeight !== 0) {
-                const startX = Math.floor(camX / grassW) * grassW;
-                const startY = Math.floor(camY / grassH) * grassH;
+            // 1. 绘制底层背景
+            if (bgImg.complete && bgImg.naturalHeight !== 0) {
+                const startX = Math.floor(camX / bgW) * bgW;
+                const startY = Math.floor(camY / bgH) * bgH;
                 const endX = camX + logicWidth;
                 const endY = camY + logicHeight;
 
-                for (let x = startX; x <= endX; x += grassW) {
-                    for (let y = startY; y <= endY; y += grassH) {
-                        ctx.drawImage(grassImg, x - camX, y - camY, grassW, grassH);
+                for (let x = startX; x <= endX; x += bgW) {
+                    for (let y = startY; y <= endY; y += bgH) {
+                        ctx.drawImage(bgImg, x - camX, y - camY, bgW, bgH);
                     }
                 }
             }
 
-            // 2. 绘制居中人物
+            // 2. 生成并绘制草地上的草
+            drawAndCollectGrass(camX, camY);
+
+            // 3. 绘制居中人物
             if (playerImg.complete && playerImg.naturalHeight !== 0) {
                 const playerScreenX = Math.round(logicWidth / 2 - playerW / 2);
                 const playerScreenY = Math.round(logicHeight / 2 - playerH / 2);
                 ctx.drawImage(playerImg, playerScreenX, playerScreenY, playerW, playerH);
             }
-
-            // 3. 绘制迷雾层（纯网格阶梯计算法）
-            drawFog(camX, camY);
         }
 
-        function drawFog(camX, camY) {
-            // 计算屏幕内可见的网格范围
-            const startTileX = Math.floor(camX / tileSize);
-            const endTileX = Math.ceil((camX + logicWidth) / tileSize);
-            const startTileY = Math.floor(camY / tileSize);
-            const endTileY = Math.ceil((camY + logicHeight) / tileSize);
+        function drawAndCollectGrass(camX, camY) {
+            if (!grassItemImg.complete || grassItemImg.naturalHeight === 0) return;
 
-            ctx.fillStyle = '#080808'; // 迷雾基础颜色（极深的暗灰色）
+            // 计算当前屏幕覆盖了哪些区块（Chunk）
+            const startChunkX = Math.floor(camX / chunkSize) - 1;
+            const endChunkX = Math.floor((camX + logicWidth) / chunkSize) + 1;
+            const startChunkY = Math.floor(camY / chunkSize) - 1;
+            const endChunkY = Math.floor((camY + logicHeight) / chunkSize) + 1;
 
-            for (let tx = startTileX; tx <= endTileX; tx++) {
-                for (let ty = startTileY; ty <= endTileY; ty++) {
-                    const key = `${tx},${ty}`;
-                    let alpha = 1.0;
+            // 遍历可见的区块
+            for (let cx = startChunkX; cx <= endChunkX; cx++) {
+                for (let cy = startChunkY; cy <= endChunkY; cy++) {
+                    
+                    // 在每个区块内生成固定数量的草
+                    for (let i = 0; i < grassPerChunk; i++) {
+                        // 使用区块坐标和当前草的序号作为种子，生成固定的随机位置
+                        const randX = pseudoRandom(cx, cy, i * 2 + 1);
+                        const randY = pseudoRandom(cx, cy, i * 2 + 2);
 
-                    // 🌟 修复问题2：按距离计算透明度，彻底告别边缘重叠闪烁
-                    if (exploredTiles.has(key)) {
-                        alpha = 0; // 走过的地方，完全透明
-                    } else {
-                        // 检查周围一圈是否有走过的格子
-                        if (exploredTiles.has(`${tx-1},${ty}`) || exploredTiles.has(`${tx+1},${ty}`) || 
-                            exploredTiles.has(`${tx},${ty-1}`) || exploredTiles.has(`${tx},${ty+1}`)) {
-                            alpha = 0.25; // 渐变第一层
-                        } 
-                        // 检查周围两圈
-                        else if (exploredTiles.has(`${tx-2},${ty}`) || exploredTiles.has(`${tx+2},${ty}`) || 
-                                 exploredTiles.has(`${tx},${ty-2}`) || exploredTiles.has(`${tx},${ty+2}`)) {
-                            alpha = 0.6; // 渐变第二层
+                        // 计算草在世界中的绝对坐标
+                        const worldX = cx * chunkSize + randX * chunkSize;
+                        const worldY = cy * chunkSize + randY * chunkSize;
+
+                        // 生成唯一标识 Key
+                        const key = `${Math.floor(worldX)},${Math.floor(worldY)}`;
+                        
+                        // 如果这株草已经被拔掉了，就不画了
+                        if (collectedGrassSet.has(key)) continue;
+
+                        // 计算屏幕坐标
+                        const screenX = worldX - camX;
+                        const screenY = worldY - camY;
+
+                        // 绘制草
+                        ctx.drawImage(grassItemImg, screenX - itemW / 2, screenY - itemH / 2, itemW, itemH);
+
+                        // 碰撞检测：如果人物离草很近，自动收集
+                        const distToPlayer = Math.hypot(worldX - playerX, worldY - playerY);
+                        if (distToPlayer < collectRadius) {
+                            collectedGrassSet.add(key); // 标记为已收集
+                            grassCount++; // 计数增加
+                            // 更新 UI
+                            document.getElementById('grass-count').innerText = grassCount;
                         }
-                        // 检查周围三圈
-                        else if (exploredTiles.has(`${tx-3},${ty}`) || exploredTiles.has(`${tx+3},${ty}`) || 
-                                 exploredTiles.has(`${tx},${ty-3}`) || exploredTiles.has(`${tx},${ty+3}`)) {
-                            alpha = 0.85; // 渐变第三层
-                        }
-                    }
-
-                    // 如果不需要完全黑，就绘制
-                    if (alpha > 0) {
-                        ctx.globalAlpha = alpha;
-                        // +1 像素是为了防止相邻网格之间出现细细的缝隙（发丝黑线）
-                        ctx.fillRect(tx * tileSize - camX, ty * tileSize - camY, tileSize + 1, tileSize + 1);
                     }
                 }
             }
-            
-            // 重置透明度，以免影响下一帧
-            ctx.globalAlpha = 1.0;
         }
 
         function gameLoop() {
