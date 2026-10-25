@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>无限草地 - 自然收集版</title>
+    <title>无限草地 - 稀有收集版</title>
     <style>
         body, html {
             margin: 0;
@@ -11,7 +11,7 @@
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background-color: #3b7a3b; /* 兜底绿色，代替黑色 */
+            background-color: #3b7a3b; 
             user-select: none;
             -webkit-user-select: none;
             -webkit-tap-highlight-color: transparent;
@@ -32,7 +32,7 @@
             left: 20px;
             color: #fff;
             font-family: 'Courier New', Courier, monospace;
-            font-size: 24px;
+            font-size: 28px;
             font-weight: bold;
             text-shadow: 2px 2px 0 #000;
             pointer-events: none;
@@ -48,19 +48,19 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
 
-        // ================= 配置区 =================
+        // ================= 核心配置区 =================
         const bgTargetSize = 128;       // 背景图显示大小
         const playerTargetSize = 48;    // 人物大小
         
-        // 【重点修改区】
-        const itemTargetSize = 64;      // 草的显示大小（改大了）
+        // 【重点调整区】
+        const itemTargetSize = 100;     // 草的显示大小（大幅调大）
         
-        const cellSize = 150;           // 随机生成的网格大小（改大了，草就稀疏了）
-        const spawnChance = 0.12;       // 每个网格生成草的概率（改小了，更稀有）
+        const cellSize = 300;           // 随机生成的网格大小（调大，草就稀疏了）
+        const spawnChance = 0.1;        // 生成概率（10%）
         
-        const collectRadius = 60;       // 自动拾取半径（稍微调大一点，方便吃到大草）
+        const collectRadius = 80;       // 自动拾取半径（草变大了，范围也调大）
 
-        // 其他手感参数
+        // 移动手感
         const maxSpeed = 5.5;          
         const maxRadius = 250;         
         const accelerationSmooth = 0.15; 
@@ -70,7 +70,6 @@
         const collectedGrassSet = new Set();
         let grassCount = 0;
 
-        // 加载图片
         const bgImg = new Image();
         const playerImg = new Image();
         const grassItemImg = new Image();
@@ -122,7 +121,6 @@
         let mouseX = 0;
         let mouseY = 0;
 
-        // 鼠标与触摸事件
         function startMove(x, y) { isMouseDown = true; mouseX = x; mouseY = y; }
         function moveTo(x, y) { mouseX = x; mouseY = y; }
         function endMove() { isMouseDown = false; }
@@ -188,7 +186,6 @@
             playerY += velocityY;
         }
 
-        // 随机哈希函数
         function hash(x, y, seed = 0) {
             let n = x * 374761393 + y * 668265263 + seed * 144665;
             n = (n ^ (n >> 13)) * 1274126177;
@@ -198,7 +195,6 @@
         function draw() {
             ctx.imageSmoothingEnabled = false;
             
-            // 兜底背景色
             if (!bgImg.complete || bgImg.naturalHeight === 0) {
                 ctx.fillStyle = '#3b7a3b'; 
                 ctx.fillRect(0, 0, logicWidth, logicHeight);
@@ -209,7 +205,6 @@
             const camX = Math.round(playerX - logicWidth / 2);
             const camY = Math.round(playerY - logicHeight / 2);
 
-            // 1. 绘制背景
             if (bgImg.complete && bgImg.naturalHeight !== 0) {
                 const startX = Math.floor(camX / bgW) * bgW;
                 const startY = Math.floor(camY / bgH) * bgH;
@@ -223,10 +218,8 @@
                 }
             }
 
-            // 2. 绘制和收集草
             drawGrass(camX, camY);
 
-            // 3. 绘制人物
             if (playerImg.complete && playerImg.naturalHeight !== 0) {
                 const playerScreenX = Math.round(logicWidth / 2 - playerW / 2);
                 const playerScreenY = Math.round(logicHeight / 2 - playerH / 2);
@@ -258,10 +251,8 @@
                         const screenX = worldX - camX;
                         const screenY = worldY - camY;
 
-                        // 绘制变大的草
                         ctx.drawImage(grassItemImg, screenX - itemW / 2, screenY - itemH / 2, itemW, itemH);
 
-                        // 收集检测
                         const distToPlayer = Math.hypot(worldX - playerX, worldY - playerY);
                         if (distToPlayer < collectRadius) {
                             collectedGrassSet.add(key);
