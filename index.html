@@ -40,11 +40,13 @@
         // 适配 16x16 纹理的比例缩放
         const bgTargetSize = 128;       // 16 * 8 = 128
         const playerTargetSize = 48;    // 16 * 3 = 48
-        const itemTargetSize = 64;      // 16 * 4 = 64
+        
+        // 🌟 修改点：物品尺寸从 64 改为 48 (也就是 16 * 3)
+        const itemTargetSize = 48;      
 
-        // 物品生成的互斥概率 (基于每个交点)
-        const grassChance = 0.15;       // 15% 概率生成草
-        const pebbleChance = 0.15;      // 15% 概率生成石头
+        // 🌟 修改点：生成概率各为 25% (0.25)
+        const grassChance = 0.25;       
+        const pebbleChance = 0.25;      
 
         const maxSpeed = 5.5;          
         const maxRadius = 250;         
@@ -52,7 +54,7 @@
         const friction = 0.94;           
         
         // UI 配置
-        const uiItemSize = 64;          // 物品栏图标大小
+        const uiItemSize = 64;          // 物品栏图标大小（保持不变）
         const uiGap = 15;               // 物品间距
         // ==========================================
 
@@ -188,7 +190,6 @@
             const clickWorldX = screenX + camX;
             const clickWorldY = screenY + camY;
 
-            // 扩展判定网格
             const startCellX = Math.floor((camX - itemTargetSize) / bgW) - 1;
             const endCellX = Math.floor((camX + logicWidth + itemTargetSize) / bgW) + 1;
             const startCellY = Math.floor((camY - itemTargetSize) / bgH) - 1;
@@ -197,21 +198,18 @@
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
                     
-                    // 以四个方块交点为中心的世界坐标
                     const worldX = cx * bgW;
                     const worldY = cy * bgH;
-                    const itemRand = hash(cx, cy, 1); // 核心随机种子
+                    const itemRand = hash(cx, cy, 1); 
 
                     const hitW = itemTargetSize + 5;
                     const hitH = itemTargetSize + 5;
                     
-                    // 如果点击落在交点附近
                     if (clickWorldX > worldX - hitW / 2 && clickWorldX < worldX + hitW / 2 &&
                         clickWorldY > worldY - hitH / 2 && clickWorldY < worldY + hitH / 2) {
                         
                         const key = `${worldX},${worldY}`;
 
-                        // 判定草
                         if (itemRand < grassChance) {
                             if (!collectedGrassSet.has(key)) {
                                 collectedGrassSet.add(key);
@@ -219,7 +217,6 @@
                                 return true; 
                             }
                         } 
-                        // 判定石头 (互斥)
                         else if (itemRand >= grassChance && itemRand < grassChance + pebbleChance) {
                             if (!collectedPebbleSet.has(key)) {
                                 collectedPebbleSet.add(key);
@@ -355,7 +352,7 @@
                 }
             }
 
-            // 2. 绘制物品 (以十字交点为中心)
+            // 2. 绘制物品
             const startCellX = Math.floor(camX / bgW) - 1;
             const endCellX = Math.floor((camX + logicWidth) / bgW) + 1;
             const startCellY = Math.floor(camY / bgH) - 1;
@@ -372,16 +369,15 @@
                     const screenY = worldY - camY;
                     const key = `${worldX},${worldY}`;
 
-                    // 画草
                     if (itemRand < grassChance) {
                         if (!collectedGrassSet.has(key) && grassImg.complete && grassImg.naturalHeight !== 0) {
-                            // 偏移 itemTargetSize / 2 让中心点对齐
+                            // 使用新的 itemTargetSize (48) 居中绘制
                             ctx.drawImage(grassImg, screenX - itemTargetSize / 2, screenY - itemTargetSize / 2, itemTargetSize, itemTargetSize);
                         }
                     } 
-                    // 画石头
                     else if (itemRand >= grassChance && itemRand < grassChance + pebbleChance) {
                         if (!collectedPebbleSet.has(key) && pebbleImg.complete && pebbleImg.naturalHeight !== 0) {
+                            // 使用新的 itemTargetSize (48) 居中绘制
                             ctx.drawImage(pebbleImg, screenX - itemTargetSize / 2, screenY - itemTargetSize / 2, itemTargetSize, itemTargetSize);
                         }
                     }
@@ -416,7 +412,7 @@
                 }
 
                 // 你最终确定的数字位置
-                drawNumber(item.count, itemX + uiItemSize - 10, itemY + 2);//here
+                drawNumber(item.count, itemX + uiItemSize - 10, itemY + 2);
 
                 if (i === selectedItemIndex && electorImg.complete && electorImg.naturalHeight !== 0) {
                     ctx.drawImage(electorImg, itemX - 2, itemY - 2, uiItemSize + 4, uiItemSize + 4);
