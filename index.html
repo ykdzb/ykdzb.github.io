@@ -50,7 +50,7 @@
         const friction = 0.94;           
         
         // UI 配置
-        const uiItemSize = 64;          // 底部图标大小
+        const uiItemSize = 64;          // 物品栏图标大小（不缩小）
         const uiGap = 15;               // 物品间距
         // ==========================================
 
@@ -63,16 +63,21 @@
             pebble: 0
         };
 
+        // 当前选中的物品索引
+        let selectedItemIndex = 0;
+
         // 资源加载
         const bgImg = new Image();
         const playerImg = new Image();
         const grassImg = new Image();
         const pebbleImg = new Image();
+        const electorImg = new Image(); // 选中框
         
         bgImg.src = './Game/picture/item/grass_land.png';
         playerImg.src = './Game/picture/mob/player.png';
         grassImg.src = './Game/picture/item/grass.png';
         pebbleImg.src = './Game/picture/item/pebble.png';
+        electorImg.src = './Game/picture/item/hotbar_elector.png';
 
         // 预加载数字图片
         const digitImgs = {};
@@ -89,22 +94,19 @@
         let imagesLoaded = 0;
         function checkLoaded() {
             imagesLoaded++;
-            if (imagesLoaded >= 4) {
+            // 现在有5张主要图片需要加载
+            if (imagesLoaded >= 5) {
                 if (bgImg.complete && bgImg.naturalHeight !== 0) {
-                    bgW = bgTargetSize;
-                    bgH = bgTargetSize * (bgImg.height / bgImg.width);
+                    bgW = bgTargetSize; bgH = bgTargetSize * (bgImg.height / bgImg.width);
                 }
                 if (playerImg.complete && playerImg.naturalHeight !== 0) {
-                    playerW = playerTargetSize;
-                    playerH = playerTargetSize * (playerImg.height / playerImg.width);
+                    playerW = playerTargetSize; playerH = playerTargetSize * (playerImg.height / playerImg.width);
                 }
                 if (grassImg.complete && grassImg.naturalHeight !== 0) {
-                    grassW = itemTargetSize;
-                    grassH = itemTargetSize * (grassImg.height / grassImg.width);
+                    grassW = itemTargetSize; grassH = itemTargetSize * (grassImg.height / grassImg.width);
                 }
                 if (pebbleImg.complete && pebbleImg.naturalHeight !== 0) {
-                    pebbleW = itemTargetSize;
-                    pebbleH = itemTargetSize * (pebbleImg.height / pebbleImg.width);
+                    pebbleW = itemTargetSize; pebbleH = itemTargetSize * (pebbleImg.height / pebbleImg.width);
                 }
                 gameLoop();
             }
@@ -114,10 +116,12 @@
         playerImg.onload = checkLoaded;
         grassImg.onload = checkLoaded;
         pebbleImg.onload = checkLoaded;
+        electorImg.onload = checkLoaded;
         bgImg.onerror = checkLoaded;
         playerImg.onerror = checkLoaded;
         grassImg.onerror = checkLoaded;
         pebbleImg.onerror = checkLoaded;
+        electorImg.onerror = checkLoaded;
 
         let playerX = 0;
         let playerY = 0;
@@ -137,6 +141,57 @@
             return ((n ^ (n >> 16)) >>> 0) / 4294967296;
         }
 
+        // 获取当前激活的物品列表
+        function getActiveItems() {
+            const items = [];
+            if (inventory.grass > 0) items.push({ type: 'grass', img: grassImg, count: inventory.grass });
+            if (inventory.pebble > 0) items.push({ type: 'pebble', img: pebbleImg, count: inventory.pebble });
+            return items;
+        }
+
+        // 判定点击是否在物品栏区域
+        function checkInventoryClick(screenX, screenY) {
+            const activeItems = getActiveItems();
+            if (activeItems.length === 0) return false;
+
+            const totalWidth = activeItems.length * uiItemSize + (activeItems.length - 1) * uiGap;
+            const startX = (logicWidth - totalWidth) / 2;
+            const startY = logicHeight - uiItemSize - 20;
+
+            // 如果点在大致的物品栏范围内
+            if (screenX >= startX - 10 && screenX <= startX + totalWidth + 10 && 
+                screenY >= startY - 10 && screenY <= startY + uiItemSize + 10) {
+                
+                for (let i = 0; i < activeItems.length; i++) {
+                    const itemX = startX + i * (uiItemSize + uiGap);
+                    const itemY = startY;
+                    // 判定点中了具体的哪一个物品
+                    if (screenX >= itemX && screenX <= itemX + uiItemSize &&
+                        screenY >= itemY && screenY <= itemY + uiItemSize) {
+                        
+                        selectedItemIndex = i; // 切换选中项
+                        return true; // 拦截，不触发移动
+                    }
+                }
+            }
+            return false;
+        }
+
+        // --- PC 滚轮切换物品 ---
+        window.addEventListener('wheel', (e) => {
+            const activeItems = getActiveItems();
+            if (activeItems.length <= 1) return;
+
+            if (e.deltaY < 0) {
+                // 滚轮向上推，前一个
+                selectedItemIndex = (selectedItemIndex - 1 + activeItems.length) % activeItems.length;
+            } else {
+                // 滚轮向下推，后一个
+                selectedItemIndex = (selectedItemIndex + 1) % activeItems.length;
+            }
+        }, { passive: true });
+
+        // 物品收集判定
         function tryCollect(screenX, screenY) {
             const camX = Math.round(playerX - logicWidth / 2);
             const camY = Math.round(playerY - logicHeight / 2);
@@ -198,7 +253,11 @@
 
         canvas.addEventListener('mousedown', (e) => { 
             if (e.button === 0) {
+                // 先判定是否点在了 UI 物品栏上
+                if (checkInventoryClick(e.clientX, e.clientY)) return;
+                // 再判定是否收集了物品
                 if (tryCollect(e.clientX, e.clientY)) return;
+
                 isMouseDown = true; 
                 mouseX = e.clientX; 
                 mouseY = e.clientY; 
@@ -206,10 +265,7 @@
         });
         
         window.addEventListener('mousemove', (e) => { 
-            if (isMouseDown) { 
-                mouseX = e.clientX; 
-                mouseY = e.clientY; 
-            } 
+            if (isMouseDown) { mouseX = e.clientX; mouseY = e.clientY; } 
         });
         
         window.addEventListener('mouseup', (e) => { 
@@ -220,7 +276,11 @@
             e.preventDefault();
             if (e.touches.length > 0) {
                 const touch = e.touches[0];
+                
+                // 移动端同理，先判定物品栏点击
+                if (checkInventoryClick(touch.clientX, touch.clientY)) return;
                 if (tryCollect(touch.clientX, touch.clientY)) return;
+
                 isMouseDown = true;
                 mouseX = touch.clientX;
                 mouseY = touch.clientY;
@@ -235,11 +295,7 @@
             }
         }, { passive: false });
         
-        window.addEventListener('touchend', (e) => { 
-            e.preventDefault(); 
-            isMouseDown = false; 
-        }, { passive: false });
-        
+        window.addEventListener('touchend', (e) => { e.preventDefault(); isMouseDown = false; }, { passive: false });
         window.addEventListener('touchcancel', () => { isMouseDown = false; });
 
         function resizeCanvas() {
@@ -286,6 +342,12 @@
 
             playerX += velocityX;
             playerY += velocityY;
+
+            // 每次更新时确保索引不越界
+            const activeItems = getActiveItems();
+            if (selectedItemIndex >= activeItems.length) {
+                selectedItemIndex = Math.max(0, activeItems.length - 1);
+            }
         }
 
         function draw() {
@@ -356,14 +418,11 @@
         }
 
         function drawInventoryUI() {
-            const activeItems = [];
-            if (inventory.grass > 0) activeItems.push({ type: 'grass', img: grassImg, count: inventory.grass });
-            if (inventory.pebble > 0) activeItems.push({ type: 'pebble', img: pebbleImg, count: inventory.pebble });
-
+            const activeItems = getActiveItems();
             if (activeItems.length === 0) return;
 
             const totalWidth = activeItems.length * uiItemSize + (activeItems.length - 1) * uiGap;
-            let startX = (logicWidth - totalWidth) / 2;
+            const startX = (logicWidth - totalWidth) / 2;
             const startY = logicHeight - uiItemSize - 20;
 
             for (let i = 0; i < activeItems.length; i++) {
@@ -371,12 +430,19 @@
                 const itemX = startX + i * (uiItemSize + uiGap);
                 const itemY = startY;
 
+                // 绘制物品
                 if (item.img.complete && item.img.naturalHeight !== 0) {
                     ctx.drawImage(item.img, itemX, itemY, uiItemSize, uiItemSize);
                 }
 
-                // 🌟 修改点：把数字的 Y 轴从 -10 抬高到 -2，X 轴向右微调，紧紧贴住右上角
-                drawNumber(item.count, itemX + uiItemSize - 5, itemY - 2);
+                // 绘制数字（X和Y坐标极度贴近右上角，产生重叠感）
+                drawNumber(item.count, itemX + uiItemSize - 2, itemY - 4);
+
+                // 绘制选中框（最后画，盖在所有东西上面）
+                if (i === selectedItemIndex && electorImg.complete && electorImg.naturalHeight !== 0) {
+                    // 如果你希望框稍微大一点点，可以向外扩展 2 像素
+                    ctx.drawImage(electorImg, itemX - 2, itemY - 2, uiItemSize + 4, uiItemSize + 4);
+                }
             }
         }
 
@@ -395,9 +461,10 @@
                     
                     ctx.drawImage(img, currentRightX - w, endY, w, h);
 
-                    // 🌟 修改点：多位数间距改为 w + 3，给数字留一点点白边
-                    currentRightX -= (w + 3); 
+                    // 🌟 数字间距极小，仅留 1 像素
+                    currentRightX -= (w + 1); 
                 } else {
+                    // 兜底
                     ctx.fillStyle = '#fff';
                     ctx.font = 'bold 24px "Courier New", Courier, monospace';
                     ctx.textAlign = 'right';
