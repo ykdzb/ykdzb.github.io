@@ -40,12 +40,11 @@
         const bgTargetSize = 128;       // 16 * 8
         const playerTargetSize = 48;    // 16 * 3
         
-        // 物品尺寸 48 (64的 3/4)
         const itemTargetSize = 48;      
 
-        // 🌟 修改点：概率大幅调低
-        const grassChance = 0.1;        // 草的概率 10%
-        const pebbleChance = 0.05;      // 石头的概率 5%
+        // 🌟 概率都改为 0.05
+        const grassChance = 0.05;       
+        const pebbleChance = 0.05;      
 
         const maxSpeed = 5.5;          
         const maxRadius = 250;         
@@ -54,12 +53,19 @@
         
         // UI 配置
         const uiItemSize = 64;          
-        const uiGap = 15;               
+        const uiGap = 15;   
+        
+        // 放置按钮配置
+        const placeBtnSize = 64;
+        const placeBtnMargin = 30; // 距离屏幕右下角的边距
         // ==========================================
 
         // 收集数据
         const collectedGrassSet = new Set();
         const collectedPebbleSet = new Set();
+        
+        // 🌟 玩家手动放置的物品记录 Map (key: "x,y", value: 'grass' | 'pebble')
+        const placedItems = new Map();
         
         const inventory = {
             grass: 0,
@@ -74,12 +80,15 @@
         const grassImg = new Image();
         const pebbleImg = new Image();
         const electorImg = new Image(); 
+        const placeImg = new Image(); // 放置按钮
         
         bgImg.src = './Game/picture/item/grass_land.png';
         playerImg.src = './Game/picture/mob/player.png';
         grassImg.src = './Game/picture/item/grass.png';
         pebbleImg.src = './Game/picture/item/pebble.png';
         electorImg.src = './Game/picture/ui/hotbar_elector.png';
+        // 🌟 放置按钮图片路径，若不在 ui 文件夹请自行修改
+        placeImg.src = './Game/picture/ui/place.png'; 
 
         const digitImgs = {};
         for (let i = 0; i <= 9; i++) {
@@ -93,7 +102,7 @@
         let imagesLoaded = 0;
         function checkLoaded() {
             imagesLoaded++;
-            if (imagesLoaded >= 5) {
+            if (imagesLoaded >= 6) { // 6张图
                 if (bgImg.complete && bgImg.naturalHeight !== 0) {
                     bgW = bgTargetSize; bgH = bgTargetSize * (bgImg.height / bgImg.width);
                 }
@@ -109,11 +118,13 @@
         grassImg.onload = checkLoaded;
         pebbleImg.onload = checkLoaded;
         electorImg.onload = checkLoaded;
+        placeImg.onload = checkLoaded;
         bgImg.onerror = checkLoaded;
         playerImg.onerror = checkLoaded;
         grassImg.onerror = checkLoaded;
         pebbleImg.onerror = checkLoaded;
         electorImg.onerror = checkLoaded;
+        placeImg.onerror = checkLoaded;
 
         let playerX = 0;
         let playerY = 0;
@@ -176,6 +187,38 @@
             }
         }, { passive: true });
 
+        // 🌟 放置物品核心逻辑
+        function tryPlace(targetWorldX, targetWorldY) {
+            const activeItems = getActiveItems();
+            if (activeItems.length === 0) return; // 没东西可放
+            
+            const selectedType = activeItems[selectedItemIndex].type;
+
+            // 计算最近的交点
+            const cx = Math.round((targetWorldX - bgW / 2) / bgW);
+            const cy = Math.round((targetWorldY - bgH / 2) / bgH);
+            const pointX = cx * bgW + bgW / 2;
+            const pointY = cy * bgH + bgH / 2;
+            const key = `${pointX},${pointY}`;
+
+            // 检查是否有自然生成的未收集物品
+            const itemRand = hash(cx, cy, 1);
+            let hasNatural = false;
+            if (itemRand < grassChance) {
+                if (!collectedGrassSet.has(key)) hasNatural = true;
+            } else if (itemRand >= grassChance && itemRand < grassChance + pebbleChance) {
+                if (!collectedPebbleSet.has(key)) hasNatural = true;
+            }
+
+            // 如果已经有自然物品 或 玩家已经放过物品，则不能重叠
+            if (hasNatural || placedItems.has(key)) return;
+
+            // 放置并扣除
+            placedItems.set(key, selectedType);
+            if (selectedType === 'grass') inventory.grass--;
+            if (selectedType === 'pebble') inventory.pebble--;
+        }
+
         // 物品收集判定
         function tryCollect(screenX, screenY) {
             const camX = Math.round(playerX - logicWidth / 2);
@@ -194,16 +237,25 @@
                     
                     const worldX = cx * bgW + bgW / 2;
                     const worldY = cy * bgH + bgH / 2;
-                    const itemRand = hash(cx, cy, 1); 
-
+                    const key = `${worldX},${worldY}`;
+                    
                     const hitW = itemTargetSize + 5;
                     const hitH = itemTargetSize + 5;
                     
                     if (clickWorldX > worldX - hitW / 2 && clickWorldX < worldX + hitW / 2 &&
                         clickWorldY > worldY - hitH / 2 && clickWorldY < worldY + hitH / 2) {
                         
-                        const key = `${worldX},${worldY}`;
+                        // 🌟 优先检测玩家放置的物品
+                        if (placedItems.has(key)) {
+                            const type = placedItems.get(key);
+                            placedItems.delete(key);
+                            if (type === 'grass') inventory.grass++;
+                            if (type === 'pebble') inventory.pebble++;
+                            return true;
+                        }
 
+                        // 再检测自然生成的物品
+                        const itemRand = hash(cx, cy, 1); 
                         if (itemRand < grassChance) {
                             if (!collectedGrassSet.has(key)) {
                                 collectedGrassSet.add(key);
@@ -223,6 +275,17 @@
             }
             return false;
         }
+
+        // 🌟 PC 右键放置
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault(); // 阻止浏览器右键菜单
+            const camX = Math.round(playerX - logicWidth / 2);
+            const camY = Math.round(playerY - logicHeight / 2);
+            // 鼠标屏幕坐标转世界坐标
+            const worldX = e.clientX + camX;
+            const worldY = e.clientY + camY;
+            tryPlace(worldX, worldY);
+        });
 
         canvas.addEventListener('mousedown', (e) => { 
             if (e.button === 0) {
@@ -248,6 +311,16 @@
             if (e.touches.length > 0) {
                 const touch = e.touches[0];
                 
+                // 🌟 移动端检测是否点击了右下角的放置按钮
+                const btnX = logicWidth - placeBtnSize - placeBtnMargin;
+                const btnY = logicHeight - placeBtnSize - placeBtnMargin;
+                if (touch.clientX >= btnX && touch.clientX <= btnX + placeBtnSize &&
+                    touch.clientY >= btnY && touch.clientY <= btnY + placeBtnSize) {
+                    // 角色脚下放置
+                    tryPlace(playerX, playerY);
+                    return; // 拦截，不触发移动
+                }
+
                 if (checkInventoryClick(touch.clientX, touch.clientY)) return;
                 if (tryCollect(touch.clientX, touch.clientY)) return;
 
@@ -363,7 +436,16 @@
                     const screenY = worldY - camY;
                     const key = `${worldX},${worldY}`;
 
-                    if (itemRand < grassChance) {
+                    // 🌟 绘制玩家放置的物品
+                    if (placedItems.has(key)) {
+                        const type = placedItems.get(key);
+                        const img = type === 'grass' ? grassImg : pebbleImg;
+                        if (img.complete && img.naturalHeight !== 0) {
+                            ctx.drawImage(img, screenX - itemTargetSize / 2, screenY - itemTargetSize / 2, itemTargetSize, itemTargetSize);
+                        }
+                    } 
+                    // 绘制自然生成的物品
+                    else if (itemRand < grassChance) {
                         if (!collectedGrassSet.has(key) && grassImg.complete && grassImg.naturalHeight !== 0) {
                             ctx.drawImage(grassImg, screenX - itemTargetSize / 2, screenY - itemTargetSize / 2, itemTargetSize, itemTargetSize);
                         }
@@ -384,6 +466,13 @@
             }
 
             drawInventoryUI();
+
+            // 🌟 4. 绘制右下角放置按钮
+            if (placeImg.complete && placeImg.naturalHeight !== 0) {
+                const btnX = logicWidth - placeBtnSize - placeBtnMargin;
+                const btnY = logicHeight - placeBtnSize - placeBtnMargin;
+                ctx.drawImage(placeImg, btnX, btnY, placeBtnSize, placeBtnSize);
+            }
         }
 
         function drawInventoryUI() {
