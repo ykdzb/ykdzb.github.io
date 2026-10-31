@@ -375,15 +375,15 @@
                     ctx.drawImage(item.img, itemX, itemY, uiItemSize, uiItemSize);
                 }
 
-                // 🌟 数字精准对齐到图标的右上角
-                drawNumber(item.count, itemX + uiItemSize - 2, itemY - 10);
+                // 🌟 修改点：把数字的 Y 轴从 -10 抬高到 -2，X 轴向右微调，紧紧贴住右上角
+                drawNumber(item.count, itemX + uiItemSize - 5, itemY - 2);
             }
         }
 
         function drawNumber(num, endX, endY) {
             const str = num.toString();
             let currentRightX = endX;
-            const numScale = 2.0; // 保持 2 倍放大
+            const numScale = 2.0; 
 
             for (let i = str.length - 1; i >= 0; i--) {
                 const digit = str[i];
@@ -393,10 +393,10 @@
                     const w = img.width * numScale;
                     const h = img.height * numScale;
                     
-                    // 🌟 删除了带偏移的阴影叠加，只画本体，彻底解决重影问题
                     ctx.drawImage(img, currentRightX - w, endY, w, h);
 
-                    currentRightX -= (w - 1); // 字符间距紧紧挨着
+                    // 🌟 修改点：多位数间距改为 w + 3，给数字留一点点白边
+                    currentRightX -= (w + 3); 
                 } else {
                     ctx.fillStyle = '#fff';
                     ctx.font = 'bold 24px "Courier New", Courier, monospace';
