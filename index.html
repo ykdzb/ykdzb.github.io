@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Alpha</title>
+    <title>无限草地 - 拾荒物品栏版</title>
     <style>
         body, html {
             margin: 0;
@@ -50,7 +50,7 @@
         const friction = 0.94;           
         
         // UI 配置
-        const uiItemSize = 64;          // 物品栏图标大小（不缩小）
+        const uiItemSize = 64;          // 物品栏图标大小
         const uiGap = 15;               // 物品间距
         // ==========================================
 
@@ -71,13 +71,15 @@
         const playerImg = new Image();
         const grassImg = new Image();
         const pebbleImg = new Image();
-        const electorImg = new Image(); // 选中框
+        const electorImg = new Image(); 
         
         bgImg.src = './Game/picture/item/grass_land.png';
         playerImg.src = './Game/picture/mob/player.png';
         grassImg.src = './Game/picture/item/grass.png';
         pebbleImg.src = './Game/picture/item/pebble.png';
-        electorImg.src = './Game/picture/item/hotbar_elector.png';
+        
+        // 🌟 修改了这里的路径，放到了 ui 文件夹下
+        electorImg.src = './Game/picture/ui/hotbar_elector.png';
 
         // 预加载数字图片
         const digitImgs = {};
@@ -94,7 +96,6 @@
         let imagesLoaded = 0;
         function checkLoaded() {
             imagesLoaded++;
-            // 现在有5张主要图片需要加载
             if (imagesLoaded >= 5) {
                 if (bgImg.complete && bgImg.naturalHeight !== 0) {
                     bgW = bgTargetSize; bgH = bgTargetSize * (bgImg.height / bgImg.width);
@@ -158,19 +159,17 @@
             const startX = (logicWidth - totalWidth) / 2;
             const startY = logicHeight - uiItemSize - 20;
 
-            // 如果点在大致的物品栏范围内
             if (screenX >= startX - 10 && screenX <= startX + totalWidth + 10 && 
                 screenY >= startY - 10 && screenY <= startY + uiItemSize + 10) {
                 
                 for (let i = 0; i < activeItems.length; i++) {
                     const itemX = startX + i * (uiItemSize + uiGap);
                     const itemY = startY;
-                    // 判定点中了具体的哪一个物品
                     if (screenX >= itemX && screenX <= itemX + uiItemSize &&
                         screenY >= itemY && screenY <= itemY + uiItemSize) {
                         
-                        selectedItemIndex = i; // 切换选中项
-                        return true; // 拦截，不触发移动
+                        selectedItemIndex = i; 
+                        return true; 
                     }
                 }
             }
@@ -183,10 +182,8 @@
             if (activeItems.length <= 1) return;
 
             if (e.deltaY < 0) {
-                // 滚轮向上推，前一个
                 selectedItemIndex = (selectedItemIndex - 1 + activeItems.length) % activeItems.length;
             } else {
-                // 滚轮向下推，后一个
                 selectedItemIndex = (selectedItemIndex + 1) % activeItems.length;
             }
         }, { passive: true });
@@ -253,9 +250,7 @@
 
         canvas.addEventListener('mousedown', (e) => { 
             if (e.button === 0) {
-                // 先判定是否点在了 UI 物品栏上
                 if (checkInventoryClick(e.clientX, e.clientY)) return;
-                // 再判定是否收集了物品
                 if (tryCollect(e.clientX, e.clientY)) return;
 
                 isMouseDown = true; 
@@ -277,7 +272,6 @@
             if (e.touches.length > 0) {
                 const touch = e.touches[0];
                 
-                // 移动端同理，先判定物品栏点击
                 if (checkInventoryClick(touch.clientX, touch.clientY)) return;
                 if (tryCollect(touch.clientX, touch.clientY)) return;
 
@@ -343,7 +337,6 @@
             playerX += velocityX;
             playerY += velocityY;
 
-            // 每次更新时确保索引不越界
             const activeItems = getActiveItems();
             if (selectedItemIndex >= activeItems.length) {
                 selectedItemIndex = Math.max(0, activeItems.length - 1);
@@ -430,17 +423,13 @@
                 const itemX = startX + i * (uiItemSize + uiGap);
                 const itemY = startY;
 
-                // 绘制物品
                 if (item.img.complete && item.img.naturalHeight !== 0) {
                     ctx.drawImage(item.img, itemX, itemY, uiItemSize, uiItemSize);
                 }
 
-                // 绘制数字（X和Y坐标极度贴近右上角，产生重叠感）
                 drawNumber(item.count, itemX + uiItemSize - 2, itemY - 4);
 
-                // 绘制选中框（最后画，盖在所有东西上面）
                 if (i === selectedItemIndex && electorImg.complete && electorImg.naturalHeight !== 0) {
-                    // 如果你希望框稍微大一点点，可以向外扩展 2 像素
                     ctx.drawImage(electorImg, itemX - 2, itemY - 2, uiItemSize + 4, uiItemSize + 4);
                 }
             }
@@ -461,10 +450,8 @@
                     
                     ctx.drawImage(img, currentRightX - w, endY, w, h);
 
-                    // 🌟 数字间距极小，仅留 1 像素
                     currentRightX -= (w + 1); 
                 } else {
-                    // 兜底
                     ctx.fillStyle = '#fff';
                     ctx.font = 'bold 24px "Courier New", Courier, monospace';
                     ctx.textAlign = 'right';
