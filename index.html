@@ -37,16 +37,15 @@
         const ctx = canvas.getContext('2d');
 
         // ================= 核心配置区 =================
-        // 适配 16x16 纹理的比例缩放
-        const bgTargetSize = 128;       // 16 * 8 = 128
-        const playerTargetSize = 48;    // 16 * 3 = 48
+        const bgTargetSize = 128;       // 16 * 8
+        const playerTargetSize = 48;    // 16 * 3
         
-        // 🌟 修改点：物品尺寸从 64 改为 48 (也就是 16 * 3)
+        // 物品尺寸 48 (64的 3/4)
         const itemTargetSize = 48;      
 
-        // 🌟 修改点：生成概率各为 25% (0.25)
-        const grassChance = 0.25;       
-        const pebbleChance = 0.25;      
+        // 🌟 修改点：概率大幅调低
+        const grassChance = 0.1;        // 草的概率 10%
+        const pebbleChance = 0.05;      // 石头的概率 5%
 
         const maxSpeed = 5.5;          
         const maxRadius = 250;         
@@ -54,8 +53,8 @@
         const friction = 0.94;           
         
         // UI 配置
-        const uiItemSize = 64;          // 物品栏图标大小（保持不变）
-        const uiGap = 15;               // 物品间距
+        const uiItemSize = 64;          
+        const uiGap = 15;               
         // ==========================================
 
         // 收集数据
@@ -67,7 +66,6 @@
             pebble: 0
         };
 
-        // 当前选中的物品索引
         let selectedItemIndex = 0;
 
         // 资源加载
@@ -83,7 +81,6 @@
         pebbleImg.src = './Game/picture/item/pebble.png';
         electorImg.src = './Game/picture/ui/hotbar_elector.png';
 
-        // 预加载数字图片
         const digitImgs = {};
         for (let i = 0; i <= 9; i++) {
             digitImgs[i] = new Image();
@@ -136,7 +133,6 @@
             return ((n ^ (n >> 16)) >>> 0) / 4294967296;
         }
 
-        // 获取当前激活的物品列表
         function getActiveItems() {
             const items = [];
             if (inventory.grass > 0) items.push({ type: 'grass', img: grassImg, count: inventory.grass });
@@ -144,7 +140,6 @@
             return items;
         }
 
-        // 判定点击是否在物品栏区域
         function checkInventoryClick(screenX, screenY) {
             const activeItems = getActiveItems();
             if (activeItems.length === 0) return false;
@@ -170,7 +165,6 @@
             return false;
         }
 
-        // --- PC 滚轮切换物品 ---
         window.addEventListener('wheel', (e) => {
             const activeItems = getActiveItems();
             if (activeItems.length <= 1) return;
@@ -198,8 +192,8 @@
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
                     
-                    const worldX = cx * bgW;
-                    const worldY = cy * bgH;
+                    const worldX = cx * bgW + bgW / 2;
+                    const worldY = cy * bgH + bgH / 2;
                     const itemRand = hash(cx, cy, 1); 
 
                     const hitW = itemTargetSize + 5;
@@ -361,8 +355,8 @@
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
                     
-                    const worldX = cx * bgW;
-                    const worldY = cy * bgH;
+                    const worldX = cx * bgW + bgW / 2;
+                    const worldY = cy * bgH + bgH / 2;
                     const itemRand = hash(cx, cy, 1);
                     
                     const screenX = worldX - camX;
@@ -371,13 +365,11 @@
 
                     if (itemRand < grassChance) {
                         if (!collectedGrassSet.has(key) && grassImg.complete && grassImg.naturalHeight !== 0) {
-                            // 使用新的 itemTargetSize (48) 居中绘制
                             ctx.drawImage(grassImg, screenX - itemTargetSize / 2, screenY - itemTargetSize / 2, itemTargetSize, itemTargetSize);
                         }
                     } 
                     else if (itemRand >= grassChance && itemRand < grassChance + pebbleChance) {
                         if (!collectedPebbleSet.has(key) && pebbleImg.complete && pebbleImg.naturalHeight !== 0) {
-                            // 使用新的 itemTargetSize (48) 居中绘制
                             ctx.drawImage(pebbleImg, screenX - itemTargetSize / 2, screenY - itemTargetSize / 2, itemTargetSize, itemTargetSize);
                         }
                     }
@@ -411,7 +403,6 @@
                     ctx.drawImage(item.img, itemX, itemY, uiItemSize, uiItemSize);
                 }
 
-                // 你最终确定的数字位置
                 drawNumber(item.count, itemX + uiItemSize - 10, itemY + 2);
 
                 if (i === selectedItemIndex && electorImg.complete && electorImg.naturalHeight !== 0) {
