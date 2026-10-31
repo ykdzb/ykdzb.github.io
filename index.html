@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>无限草地 - 拾荒物品栏版</title>
+    <title>alpha0.0</title>
     <style>
         body, html {
             margin: 0;
@@ -42,7 +42,7 @@
         
         const itemTargetSize = 48;      
 
-        // 🌟 概率都改为 0.05
+        // 概率都很低
         const grassChance = 0.05;       
         const pebbleChance = 0.05;      
 
@@ -64,7 +64,7 @@
         const collectedGrassSet = new Set();
         const collectedPebbleSet = new Set();
         
-        // 🌟 玩家手动放置的物品记录 Map (key: "x,y", value: 'grass' | 'pebble')
+        // 玩家手动放置的物品记录 Map
         const placedItems = new Map();
         
         const inventory = {
@@ -80,14 +80,13 @@
         const grassImg = new Image();
         const pebbleImg = new Image();
         const electorImg = new Image(); 
-        const placeImg = new Image(); // 放置按钮
+        const placeImg = new Image(); 
         
         bgImg.src = './Game/picture/item/grass_land.png';
         playerImg.src = './Game/picture/mob/player.png';
         grassImg.src = './Game/picture/item/grass.png';
         pebbleImg.src = './Game/picture/item/pebble.png';
         electorImg.src = './Game/picture/ui/hotbar_elector.png';
-        // 🌟 放置按钮图片路径，若不在 ui 文件夹请自行修改
         placeImg.src = './Game/picture/ui/place.png'; 
 
         const digitImgs = {};
@@ -102,7 +101,7 @@
         let imagesLoaded = 0;
         function checkLoaded() {
             imagesLoaded++;
-            if (imagesLoaded >= 6) { // 6张图
+            if (imagesLoaded >= 6) {
                 if (bgImg.complete && bgImg.naturalHeight !== 0) {
                     bgW = bgTargetSize; bgH = bgTargetSize * (bgImg.height / bgImg.width);
                 }
@@ -187,18 +186,18 @@
             }
         }, { passive: true });
 
-        // 🌟 放置物品核心逻辑
+        // 🌟 放置物品核心逻辑 (吸附到真正的网格交点)
         function tryPlace(targetWorldX, targetWorldY) {
             const activeItems = getActiveItems();
-            if (activeItems.length === 0) return; // 没东西可放
+            if (activeItems.length === 0) return; 
             
             const selectedType = activeItems[selectedItemIndex].type;
 
-            // 计算最近的交点
-            const cx = Math.round((targetWorldX - bgW / 2) / bgW);
-            const cy = Math.round((targetWorldY - bgH / 2) / bgH);
-            const pointX = cx * bgW + bgW / 2;
-            const pointY = cy * bgH + bgH / 2;
+            // 计算最近的十字交点（去除了 bgW / 2 偏移）
+            const cx = Math.round(targetWorldX / bgW);
+            const cy = Math.round(targetWorldY / bgH);
+            const pointX = cx * bgW;
+            const pointY = cy * bgH;
             const key = `${pointX},${pointY}`;
 
             // 检查是否有自然生成的未收集物品
@@ -210,10 +209,10 @@
                 if (!collectedPebbleSet.has(key)) hasNatural = true;
             }
 
-            // 如果已经有自然物品 或 玩家已经放过物品，则不能重叠
+            // 如果有自然物品 或 已经有放置的物品，则不能重叠
             if (hasNatural || placedItems.has(key)) return;
 
-            // 放置并扣除
+            // 放置并扣除数量
             placedItems.set(key, selectedType);
             if (selectedType === 'grass') inventory.grass--;
             if (selectedType === 'pebble') inventory.pebble--;
@@ -235,8 +234,9 @@
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
                     
-                    const worldX = cx * bgW + bgW / 2;
-                    const worldY = cy * bgH + bgH / 2;
+                    // 🌟 真正的交点坐标
+                    const worldX = cx * bgW;
+                    const worldY = cy * bgH;
                     const key = `${worldX},${worldY}`;
                     
                     const hitW = itemTargetSize + 5;
@@ -245,7 +245,7 @@
                     if (clickWorldX > worldX - hitW / 2 && clickWorldX < worldX + hitW / 2 &&
                         clickWorldY > worldY - hitH / 2 && clickWorldY < worldY + hitH / 2) {
                         
-                        // 🌟 优先检测玩家放置的物品
+                        // 优先检测玩家放置的物品
                         if (placedItems.has(key)) {
                             const type = placedItems.get(key);
                             placedItems.delete(key);
@@ -276,12 +276,11 @@
             return false;
         }
 
-        // 🌟 PC 右键放置
+        // PC 右键放置
         canvas.addEventListener('contextmenu', (e) => {
-            e.preventDefault(); // 阻止浏览器右键菜单
+            e.preventDefault(); 
             const camX = Math.round(playerX - logicWidth / 2);
             const camY = Math.round(playerY - logicHeight / 2);
-            // 鼠标屏幕坐标转世界坐标
             const worldX = e.clientX + camX;
             const worldY = e.clientY + camY;
             tryPlace(worldX, worldY);
@@ -311,14 +310,14 @@
             if (e.touches.length > 0) {
                 const touch = e.touches[0];
                 
-                // 🌟 移动端检测是否点击了右下角的放置按钮
+                // 移动端检测右下角放置按钮
                 const btnX = logicWidth - placeBtnSize - placeBtnMargin;
                 const btnY = logicHeight - placeBtnSize - placeBtnMargin;
                 if (touch.clientX >= btnX && touch.clientX <= btnX + placeBtnSize &&
                     touch.clientY >= btnY && touch.clientY <= btnY + placeBtnSize) {
-                    // 角色脚下放置
+                    
                     tryPlace(playerX, playerY);
-                    return; // 拦截，不触发移动
+                    return; 
                 }
 
                 if (checkInventoryClick(touch.clientX, touch.clientY)) return;
@@ -428,15 +427,16 @@
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
                     
-                    const worldX = cx * bgW + bgW / 2;
-                    const worldY = cy * bgH + bgH / 2;
-                    const itemRand = hash(cx, cy, 1);
+                    // 🌟 修改点：真正的交点坐标
+                    const worldX = cx * bgW;
+                    const worldY = cy * bgH;
                     
+                    const itemRand = hash(cx, cy, 1);
                     const screenX = worldX - camX;
                     const screenY = worldY - camY;
                     const key = `${worldX},${worldY}`;
 
-                    // 🌟 绘制玩家放置的物品
+                    // 绘制玩家放置的物品
                     if (placedItems.has(key)) {
                         const type = placedItems.get(key);
                         const img = type === 'grass' ? grassImg : pebbleImg;
@@ -467,7 +467,7 @@
 
             drawInventoryUI();
 
-            // 🌟 4. 绘制右下角放置按钮
+            // 4. 绘制右下角放置按钮
             if (placeImg.complete && placeImg.naturalHeight !== 0) {
                 const btnX = logicWidth - placeBtnSize - placeBtnMargin;
                 const btnY = logicHeight - placeBtnSize - placeBtnMargin;
