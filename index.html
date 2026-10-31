@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>alpha0.0</title>
+    <title>无限草地 - 拾荒物品栏版</title>
     <style>
         body, html {
             margin: 0;
@@ -42,7 +42,7 @@
         
         const itemTargetSize = 48;      
 
-        // 概率都很低
+        // 概率
         const grassChance = 0.05;       
         const pebbleChance = 0.05;      
 
@@ -57,7 +57,7 @@
         
         // 放置按钮配置
         const placeBtnSize = 64;
-        const placeBtnMargin = 30; // 距离屏幕右下角的边距
+        const placeBtnMargin = 30; 
         // ==========================================
 
         // 收集数据
@@ -186,18 +186,18 @@
             }
         }, { passive: true });
 
-        // 🌟 放置物品核心逻辑 (吸附到真正的网格交点)
+        // 🌟 放置物品：吸附到方块正中心
         function tryPlace(targetWorldX, targetWorldY) {
             const activeItems = getActiveItems();
             if (activeItems.length === 0) return; 
             
             const selectedType = activeItems[selectedItemIndex].type;
 
-            // 计算最近的十字交点（去除了 bgW / 2 偏移）
-            const cx = Math.round(targetWorldX / bgW);
-            const cy = Math.round(targetWorldY / bgH);
-            const pointX = cx * bgW;
-            const pointY = cy * bgH;
+            // 用 floor 找到所在的网格索引，然后 + bgW/2 定位到正中心
+            const cx = Math.floor(targetWorldX / bgW);
+            const cy = Math.floor(targetWorldY / bgH);
+            const pointX = cx * bgW + bgW / 2;
+            const pointY = cy * bgH + bgH / 2;
             const key = `${pointX},${pointY}`;
 
             // 检查是否有自然生成的未收集物品
@@ -234,9 +234,9 @@
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
                     
-                    // 🌟 真正的交点坐标
-                    const worldX = cx * bgW;
-                    const worldY = cy * bgH;
+                    // 🌟 方块正中心坐标
+                    const worldX = cx * bgW + bgW / 2;
+                    const worldY = cy * bgH + bgH / 2;
                     const key = `${worldX},${worldY}`;
                     
                     const hitW = itemTargetSize + 5;
@@ -427,9 +427,9 @@
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
                     
-                    // 🌟 修改点：真正的交点坐标
-                    const worldX = cx * bgW;
-                    const worldY = cy * bgH;
+                    // 🌟 方块正中心坐标
+                    const worldX = cx * bgW + bgW / 2;
+                    const worldY = cy * bgH + bgH / 2;
                     
                     const itemRand = hash(cx, cy, 1);
                     const screenX = worldX - camX;
