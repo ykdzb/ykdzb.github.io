@@ -427,7 +427,7 @@
                     ctx.drawImage(item.img, itemX, itemY, uiItemSize, uiItemSize);
                 }
 
-                drawNumber(item.count, itemX + uiItemSize - 2, itemY - 4);
+                drawNumber(item.count, itemX + uiItemSize - 0, itemY - 2);//here
 
                 if (i === selectedItemIndex && electorImg.complete && electorImg.naturalHeight !== 0) {
                     ctx.drawImage(electorImg, itemX - 2, itemY - 2, uiItemSize + 4, uiItemSize + 4);
