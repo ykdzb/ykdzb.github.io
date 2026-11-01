@@ -118,10 +118,39 @@
         let isPortraitForced = false;
         let isGameStarted = false;
 
+        let playerX = 0;
+        let playerY = 0;
+        let velocityX = 0;
+        let velocityY = 0;
+
+        let isMouseDown = false;
+        let mouseX = 0;
+        let mouseY = 0;
+
+        // 🌟 键盘状态记录
+        const keys = {
+            w: false, a: false, s: false, d: false,
+            ArrowUp: false, ArrowLeft: false, ArrowDown: false, ArrowRight: false
+        };
+
+        // 键盘事件监听
+        window.addEventListener('keydown', (e) => {
+            if (keys.hasOwnProperty(e.key)) {
+                keys[e.key] = true;
+                // 防止按方向键时页面滚动
+                if(e.key.startsWith('Arrow')) e.preventDefault();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (keys.hasOwnProperty(e.key)) {
+                keys[e.key] = false;
+            }
+        });
+
         let imagesLoaded = 0;
         function checkLoaded() {
             imagesLoaded++;
-            // 只要有 10 张图有响应（不管成功失败），就开始游戏，防止卡死
             if (imagesLoaded >= 10 && !isGameStarted) {
                 if (bgImg.complete && bgImg.naturalHeight !== 0) {
                     bgW = bgTargetSize; bgH = bgTargetSize * (bgImg.height / bgImg.width);
@@ -151,15 +180,6 @@
         });
 
         setTimeout(startGame, 3000);
-
-        let playerX = 0;
-        let playerY = 0;
-        let velocityX = 0;
-        let velocityY = 0;
-
-        let isMouseDown = false;
-        let mouseX = 0;
-        let mouseY = 0;
 
         function initScreen() {
             const dpr = window.devicePixelRatio || 1;
@@ -424,26 +444,54 @@
         });
 
         function update() {
-            if (isMouseDown) {
+            let isKeyboardMoving = false;
+            let targetVx = 0;
+            let targetVy = 0;
+
+            // 🌟 1. 键盘控制检测
+            let kdx = 0, kdy = 0;
+            if (keys.w || keys.ArrowUp) kdy -= 1;
+            if (keys.s || keys.ArrowDown) kdy += 1;
+            if (keys.a || keys.ArrowLeft) kdx -= 1;
+            if (keys.d || keys.ArrowRight) kdx += 1;
+
+            if (kdx !== 0 || kdy !== 0) {
+                isKeyboardMoving = true;
+                // 归一化，确保斜着走不会比直走快
+                const length = Math.hypot(kdx, kdy);
+                kdx /= length;
+                kdy /= length;
+                targetVx = kdx * maxSpeed;
+                targetVy = kdy * maxSpeed;
+            }
+
+            // 🌟 2. 应用物理逻辑
+            if (isKeyboardMoving) {
+                // 键盘平滑移动
+                velocityX += (targetVx - velocityX) * accelerationSmooth;
+                velocityY += (targetVy - velocityY) * accelerationSmooth;
+            } else if (isMouseDown) {
+                // 鼠标或触摸平滑拖动
                 const centerX = logicWidth / 2;
                 const centerY = logicHeight / 2;
                 const dx = mouseX - centerX;
                 const dy = mouseY - centerY;
-                const distance = Math.sqrt(dx * dx + dy * dy);
+                const distance = Math.hypot(dx, dy);
 
-                let targetVx = 0;
-                let targetVy = 0;
+                let mouseTargetVx = 0;
+                let mouseTargetVy = 0;
 
                 if (distance > 10) { 
                     const effectiveDist = Math.min(distance, maxRadius);
                     const currentMaxSpeed = (effectiveDist / maxRadius) * maxSpeed;
-                    targetVx = (dx / distance) * currentMaxSpeed;
-                    targetVy = (dy / distance) * currentMaxSpeed;
+                    mouseTargetVx = (dx / distance) * currentMaxSpeed;
+                    mouseTargetVy = (dy / distance) * currentMaxSpeed;
                 }
 
-                velocityX += (targetVx - velocityX) * accelerationSmooth;
-                velocityY += (targetVy - velocityY) * accelerationSmooth;
+                velocityX += (mouseTargetVx - velocityX) * accelerationSmooth;
+                velocityY += (mouseTargetVy - velocityY) * accelerationSmooth;
             } else {
+                // 松开后的惯性滑行（摩擦）
                 velocityX *= friction;
                 velocityY *= friction;
                 if (Math.abs(velocityX) < 0.05) velocityX = 0;
@@ -521,18 +569,15 @@
                 }
             }
 
-            // 🌟 人物渲染与防隐身兜底
             const playerScreenX = Math.round(logicWidth / 2 - playerW / 2);
             const playerScreenY = Math.round(logicHeight / 2 - playerH / 2);
             
-            // 先判断人物图到底能不能用
             if (playerImg.complete && playerImg.naturalHeight !== 0) {
                 let currentPlayerImg = playerImg; 
                 
                 const speed = Math.hypot(velocityX, velocityY);
                 
                 if (speed > 0.2) {
-                    // 这里稍微调整了一下优先判断纵向，手感更好
                     if (Math.abs(velocityY) > Math.abs(velocityX)) {
                         currentPlayerImg = velocityY > 0 ? playerDownImg : playerUpImg;
                     } else {
@@ -541,15 +586,13 @@
                 }
 
                 if (!currentPlayerImg || !currentPlayerImg.complete || currentPlayerImg.naturalHeight === 0) {
-                    currentPlayerImg = playerImg; // 如果新方向图没加载出来，退回默认图
+                    currentPlayerImg = playerImg;
                 }
 
                 ctx.drawImage(currentPlayerImg, playerScreenX, playerScreenY, playerW, playerH);
             } else {
-                // 🌟 终极兜底：如果连 player.png 都挂了，画一个亮蓝色的方块，让你能看见自己！
                 ctx.fillStyle = '#3498db'; 
                 ctx.fillRect(playerScreenX, playerScreenY, playerW, playerH);
-                // 画两个黑点眼睛，让它看起来像个小人
                 ctx.fillStyle = '#000';
                 ctx.fillRect(playerScreenX + 10, playerScreenY + 10, 6, 10);
                 ctx.fillRect(playerScreenX + 32, playerScreenY + 10, 6, 10);
