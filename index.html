@@ -11,7 +11,7 @@
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background-color: #000; /* 边缘留黑 */
+            background-color: #000; 
             user-select: none;
             -webkit-user-select: none;
             -webkit-tap-highlight-color: transparent;
@@ -52,7 +52,7 @@
         const accelerationSmooth = 0.15; 
         const friction = 0.94;           
         
-        // UI 配置 (3/5 尺寸)
+        // UI 配置
         const uiItemSize = 38;          
         const uiGap = 9;                
         const uiBottomMargin = 12;      
@@ -78,7 +78,12 @@
 
         // 资源加载
         const bgImg = new Image();
-        const playerImg = new Image();
+        const playerImg = new Image(); // 默认(静止)
+        const playerRightImg = new Image();
+        const playerLeftImg = new Image();
+        const playerUpImg = new Image();
+        const playerDownImg = new Image();
+        
         const grassImg = new Image();
         const pebbleImg = new Image();
         const electorImg = new Image(); 
@@ -86,7 +91,14 @@
         const pressedPlaceImg = new Image(); 
         
         bgImg.src = './Game/picture/item/grass_land.png';
+        
+        // 🌟 人物四向图
         playerImg.src = './Game/picture/mob/player.png';
+        playerRightImg.src = './Game/picture/mob/player_right.png';
+        playerLeftImg.src = './Game/picture/mob/player_left.png';
+        playerUpImg.src = './Game/picture/mob/player_up.png';
+        playerDownImg.src = './Game/picture/mob/player_down.png';
+
         grassImg.src = './Game/picture/item/grass.png';
         pebbleImg.src = './Game/picture/item/pebble.png';
         electorImg.src = './Game/picture/ui/hotbar_elector.png';
@@ -102,7 +114,6 @@
         let bgW = bgTargetSize, bgH = bgTargetSize;
         let playerW = playerTargetSize, playerH = playerTargetSize;
 
-        // 强制固定宽高，不监听 resize
         let logicWidth = window.innerWidth;
         let logicHeight = window.innerHeight;
         let isPortraitForced = false;
@@ -110,27 +121,37 @@
         let imagesLoaded = 0;
         function checkLoaded() {
             imagesLoaded++;
-            if (imagesLoaded >= 7) {
+            // 🌟 图片总数变成了 11 张
+            if (imagesLoaded >= 11) {
                 if (bgImg.complete && bgImg.naturalHeight !== 0) {
                     bgW = bgTargetSize; bgH = bgTargetSize * (bgImg.height / bgImg.width);
                 }
                 if (playerImg.complete && playerImg.naturalHeight !== 0) {
                     playerW = playerTargetSize; playerH = playerTargetSize * (playerImg.height / playerImg.width);
                 }
-                initScreen(); // 所有资源加载完后，初始化一次屏幕就锁死
+                initScreen(); 
                 gameLoop();
             }
         }
         
         bgImg.onload = checkLoaded;
         playerImg.onload = checkLoaded;
+        playerRightImg.onload = checkLoaded;
+        playerLeftImg.onload = checkLoaded;
+        playerUpImg.onload = checkLoaded;
+        playerDownImg.onload = checkLoaded;
         grassImg.onload = checkLoaded;
         pebbleImg.onload = checkLoaded;
         electorImg.onload = checkLoaded;
         placeImg.onload = checkLoaded;
         pressedPlaceImg.onload = checkLoaded; 
+        
         bgImg.onerror = checkLoaded;
         playerImg.onerror = checkLoaded;
+        playerRightImg.onerror = checkLoaded;
+        playerLeftImg.onerror = checkLoaded;
+        playerUpImg.onerror = checkLoaded;
+        playerDownImg.onerror = checkLoaded;
         grassImg.onerror = checkLoaded;
         pebbleImg.onerror = checkLoaded;
         electorImg.onerror = checkLoaded;
@@ -146,14 +167,12 @@
         let mouseX = 0;
         let mouseY = 0;
 
-        // 🌟 强制初始锁定屏幕方向（只执行一次）
         function initScreen() {
             const dpr = window.devicePixelRatio || 1;
             const w = window.innerWidth;
             const h = window.innerHeight;
 
             if (h > w) {
-                // 竖屏打开：长边强制为底（左侧）
                 isPortraitForced = true;
                 logicWidth = h;
                 logicHeight = w;
@@ -161,16 +180,13 @@
                 canvas.width = logicWidth * dpr;
                 canvas.height = logicHeight * dpr;
                 
-                // CSS 强制顺时针旋转90度
                 canvas.style.width = logicWidth + "px";
                 canvas.style.height = logicHeight + "px";
                 canvas.style.transformOrigin = "top left";
-                // 向右平移屏幕宽度，再旋转90度，这样原本在底部的UI会跑到手机左侧
                 canvas.style.transform = `translateX(${w}px) rotate(90deg)`;
                 
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             } else {
-                // 横屏打开：正常渲染
                 isPortraitForced = false;
                 logicWidth = w;
                 logicHeight = h;
@@ -186,10 +202,8 @@
             }
         }
 
-        // 🌟 获取逻辑坐标（将物理触摸坐标反转回游戏内部坐标）
         function getLogicCoords(clientX, clientY) {
             if (isPortraitForced) {
-                // 因为画面顺时针转了90度，物理的 Y 变逻辑的 X，物理的 X 反过来变逻辑的 Y
                 return {
                     x: clientY,
                     y: window.innerWidth - clientX
@@ -513,10 +527,32 @@
                 }
             }
 
+            // 🌟 核心：根据速度动态选择人物图片
             if (playerImg.complete && playerImg.naturalHeight !== 0) {
+                let currentPlayerImg = playerImg; // 默认静止
+                
+                // 计算当前速度大小
+                const speed = Math.hypot(velocityX, velocityY);
+                
+                // 如果速度大于 0.2，说明在移动，判断朝向
+                if (speed > 0.2) {
+                    if (Math.abs(velocityX) > Math.abs(velocityY)) {
+                        // 横向移动为主
+                        currentPlayerImg = velocityX > 0 ? playerRightImg : playerLeftImg;
+                    } else {
+                        // 纵向移动为主
+                        currentPlayerImg = velocityY > 0 ? playerDownImg : playerUpImg;
+                    }
+                }
+
+                // 容错处理：如果对应的方向图没加载出来，就退回默认图
+                if (!currentPlayerImg || !currentPlayerImg.complete || currentPlayerImg.naturalHeight === 0) {
+                    currentPlayerImg = playerImg;
+                }
+
                 const playerScreenX = Math.round(logicWidth / 2 - playerW / 2);
                 const playerScreenY = Math.round(logicHeight / 2 - playerH / 2);
-                ctx.drawImage(playerImg, playerScreenX, playerScreenY, playerW, playerH);
+                ctx.drawImage(currentPlayerImg, playerScreenX, playerScreenY, playerW, playerH);
             }
 
             drawInventoryUI();
@@ -564,7 +600,6 @@
                     ctx.drawImage(item.img, itemX, itemY, uiItemSize, uiItemSize);
                 }
 
-                // 🌟 数字往右移了一点点（从 -6 改成了 -2）
                 drawNumber(item.count, itemX + uiItemSize - 2, itemY + 2);
             }
 
