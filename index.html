@@ -37,10 +37,11 @@
         const ctx = canvas.getContext('2d');
 
         // ================= 核心配置区 =================
-        const bgTargetSize = 128;       // 16 * 8
-        const playerTargetSize = 48;    // 16 * 3
+        // 🌟 调整点：方块调小(128->80)，物品调大(48->64)
+        const bgTargetSize = 80;        // 背景草地大小
+        const playerTargetSize = 48;    // 人物大小 (保持不变)
         
-        const itemTargetSize = 48;      
+        const itemTargetSize = 64;      // 草和石头的大小
 
         // 概率
         const grassChance = 0.05;       
@@ -193,14 +194,12 @@
             
             const selectedType = activeItems[selectedItemIndex].type;
 
-            // 用 floor 找到所在的网格索引，然后 + bgW/2 定位到正中心
             const cx = Math.floor(targetWorldX / bgW);
             const cy = Math.floor(targetWorldY / bgH);
             const pointX = cx * bgW + bgW / 2;
             const pointY = cy * bgH + bgH / 2;
             const key = `${pointX},${pointY}`;
 
-            // 检查是否有自然生成的未收集物品
             const itemRand = hash(cx, cy, 1);
             let hasNatural = false;
             if (itemRand < grassChance) {
@@ -209,10 +208,8 @@
                 if (!collectedPebbleSet.has(key)) hasNatural = true;
             }
 
-            // 如果有自然物品 或 已经有放置的物品，则不能重叠
             if (hasNatural || placedItems.has(key)) return;
 
-            // 放置并扣除数量
             placedItems.set(key, selectedType);
             if (selectedType === 'grass') inventory.grass--;
             if (selectedType === 'pebble') inventory.pebble--;
@@ -234,7 +231,6 @@
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
                     
-                    // 🌟 方块正中心坐标
                     const worldX = cx * bgW + bgW / 2;
                     const worldY = cy * bgH + bgH / 2;
                     const key = `${worldX},${worldY}`;
@@ -245,7 +241,6 @@
                     if (clickWorldX > worldX - hitW / 2 && clickWorldX < worldX + hitW / 2 &&
                         clickWorldY > worldY - hitH / 2 && clickWorldY < worldY + hitH / 2) {
                         
-                        // 优先检测玩家放置的物品
                         if (placedItems.has(key)) {
                             const type = placedItems.get(key);
                             placedItems.delete(key);
@@ -254,7 +249,6 @@
                             return true;
                         }
 
-                        // 再检测自然生成的物品
                         const itemRand = hash(cx, cy, 1); 
                         if (itemRand < grassChance) {
                             if (!collectedGrassSet.has(key)) {
@@ -276,7 +270,6 @@
             return false;
         }
 
-        // PC 右键放置
         canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault(); 
             const camX = Math.round(playerX - logicWidth / 2);
@@ -310,7 +303,6 @@
             if (e.touches.length > 0) {
                 const touch = e.touches[0];
                 
-                // 移动端检测右下角放置按钮
                 const btnX = logicWidth - placeBtnSize - placeBtnMargin;
                 const btnY = logicHeight - placeBtnSize - placeBtnMargin;
                 if (touch.clientX >= btnX && touch.clientX <= btnX + placeBtnSize &&
@@ -427,7 +419,6 @@
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
                     
-                    // 🌟 方块正中心坐标
                     const worldX = cx * bgW + bgW / 2;
                     const worldY = cy * bgH + bgH / 2;
                     
@@ -436,7 +427,6 @@
                     const screenY = worldY - camY;
                     const key = `${worldX},${worldY}`;
 
-                    // 绘制玩家放置的物品
                     if (placedItems.has(key)) {
                         const type = placedItems.get(key);
                         const img = type === 'grass' ? grassImg : pebbleImg;
@@ -444,7 +434,6 @@
                             ctx.drawImage(img, screenX - itemTargetSize / 2, screenY - itemTargetSize / 2, itemTargetSize, itemTargetSize);
                         }
                     } 
-                    // 绘制自然生成的物品
                     else if (itemRand < grassChance) {
                         if (!collectedGrassSet.has(key) && grassImg.complete && grassImg.naturalHeight !== 0) {
                             ctx.drawImage(grassImg, screenX - itemTargetSize / 2, screenY - itemTargetSize / 2, itemTargetSize, itemTargetSize);
