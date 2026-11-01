@@ -11,7 +11,7 @@
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background-color: #1a1a1a; /* 竖屏旋转后露出的边缘底色 */
+            background-color: #000; /* 边缘留黑 */
             user-select: none;
             -webkit-user-select: none;
             -webkit-tap-highlight-color: transparent;
@@ -22,6 +22,9 @@
             image-rendering: crisp-edges;
             touch-action: none; 
             cursor: grab;
+            position: absolute;
+            top: 0;
+            left: 0;
         }
         canvas:active {
             cursor: grabbing;
@@ -99,8 +102,10 @@
         let bgW = bgTargetSize, bgH = bgTargetSize;
         let playerW = playerTargetSize, playerH = playerTargetSize;
 
-        // 🌟 新增：是否是竖屏旋转状态
-        let isPortraitRotated = false;
+        // 强制固定宽高，不监听 resize
+        let logicWidth = window.innerWidth;
+        let logicHeight = window.innerHeight;
+        let isPortraitForced = false;
 
         let imagesLoaded = 0;
         function checkLoaded() {
@@ -112,7 +117,7 @@
                 if (playerImg.complete && playerImg.naturalHeight !== 0) {
                     playerW = playerTargetSize; playerH = playerTargetSize * (playerImg.height / playerImg.width);
                 }
-                resizeCanvas(); // 确保所有资源加载完后重算一次画布
+                initScreen(); // 所有资源加载完后，初始化一次屏幕就锁死
                 gameLoop();
             }
         }
@@ -137,70 +142,62 @@
         let velocityX = 0;
         let velocityY = 0;
 
-        let logicWidth = window.innerWidth;
-        let logicHeight = window.innerHeight;
-
         let isMouseDown = false;
         let mouseX = 0;
         let mouseY = 0;
 
-        // 🌟 核心：屏幕物理坐标转换为逻辑（旋转后）坐标
-        function getLogicCoords(clientX, clientY) {
+        // 🌟 强制初始锁定屏幕方向（只执行一次）
+        function initScreen() {
+            const dpr = window.devicePixelRatio || 1;
             const w = window.innerWidth;
             const h = window.innerHeight;
-            if (isPortraitRotated) {
-                // 顺时针旋转90度后：物理的 Y 轴变逻辑的 X 轴，物理的 X 轴反向变逻辑的 Y 轴
+
+            if (h > w) {
+                // 竖屏打开：长边强制为底（左侧）
+                isPortraitForced = true;
+                logicWidth = h;
+                logicHeight = w;
+
+                canvas.width = logicWidth * dpr;
+                canvas.height = logicHeight * dpr;
+                
+                // CSS 强制顺时针旋转90度
+                canvas.style.width = logicWidth + "px";
+                canvas.style.height = logicHeight + "px";
+                canvas.style.transformOrigin = "top left";
+                // 向右平移屏幕宽度，再旋转90度，这样原本在底部的UI会跑到手机左侧
+                canvas.style.transform = `translateX(${w}px) rotate(90deg)`;
+                
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            } else {
+                // 横屏打开：正常渲染
+                isPortraitForced = false;
+                logicWidth = w;
+                logicHeight = h;
+
+                canvas.width = logicWidth * dpr;
+                canvas.height = logicHeight * dpr;
+                
+                canvas.style.width = logicWidth + "px";
+                canvas.style.height = logicHeight + "px";
+                canvas.style.transform = "none";
+                
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            }
+        }
+
+        // 🌟 获取逻辑坐标（将物理触摸坐标反转回游戏内部坐标）
+        function getLogicCoords(clientX, clientY) {
+            if (isPortraitForced) {
+                // 因为画面顺时针转了90度，物理的 Y 变逻辑的 X，物理的 X 反过来变逻辑的 Y
                 return {
                     x: clientY,
-                    y: w - clientX
+                    y: window.innerWidth - clientX
                 };
             } else {
                 return { x: clientX, y: clientY };
             }
         }
-
-        // 🌟 核心：画布旋转与自适应
-        function resizeCanvas() {
-            const dpr = window.devicePixelRatio || 1;
-            const w = window.innerWidth;
-            const h = window.innerHeight;
-
-            // 物理画布铺满屏幕
-            canvas.width = w * dpr;
-            canvas.height = h * dpr;
-            canvas.style.width = w + 'px';
-            canvas.style.height = h + 'px';
-
-            ctx.setTransform(1, 0, 0, 1, 0, 0); // 重置矩阵
-
-            if (h > w) {
-                // 竖屏：游戏逻辑宽度等于屏幕高度，高度等于屏幕宽度
-                isPortraitRotated = true;
-                logicWidth = h;
-                logicHeight = w;
-                
-                ctx.scale(dpr, dpr);
-                ctx.translate(logicWidth, 0); // 向右平移
-                ctx.rotate(Math.PI / 2);      // 顺时针旋转90度
-            } else {
-                // 横屏：正常渲染
-                isPortraitRotated = false;
-                logicWidth = w;
-                logicHeight = h;
-                
-                ctx.scale(dpr, dpr);
-            }
-            
-            // 重置视觉选框，防止旋转后错位
-            electorVisualX = null; 
-        }
-
-        window.addEventListener('resize', resizeCanvas);
-        window.addEventListener('orientationchange', () => {
-            setTimeout(resizeCanvas, 100); 
-        });
-        
-        resizeCanvas();
 
         function hash(x, y, seed = 0) {
             let n = x * 374761393 + y * 668265263 + seed * 144665;
@@ -332,7 +329,6 @@
             return false;
         }
 
-        // 🌟 事件坐标全部替换为 getLogicCoords
         canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault(); 
             const { x, y } = getLogicCoords(e.clientX, e.clientY);
@@ -568,7 +564,8 @@
                     ctx.drawImage(item.img, itemX, itemY, uiItemSize, uiItemSize);
                 }
 
-                drawNumber(item.count, itemX + uiItemSize - 6, itemY + 2);
+                // 🌟 数字往右移了一点点（从 -6 改成了 -2）
+                drawNumber(item.count, itemX + uiItemSize - 2, itemY + 2);
             }
 
             if (electorImg.complete && electorImg.naturalHeight !== 0) {
