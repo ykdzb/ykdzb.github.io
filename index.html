@@ -78,7 +78,7 @@
 
         // 资源加载
         const bgImg = new Image();
-        const playerImg = new Image(); // 默认(静止)
+        const playerImg = new Image(); 
         const playerRightImg = new Image();
         const playerLeftImg = new Image();
         const playerUpImg = new Image();
@@ -92,7 +92,6 @@
         
         bgImg.src = './Game/picture/item/grass_land.png';
         
-        // 🌟 人物四向图
         playerImg.src = './Game/picture/mob/player.png';
         playerRightImg.src = './Game/picture/mob/player_right.png';
         playerLeftImg.src = './Game/picture/mob/player_left.png';
@@ -118,45 +117,45 @@
         let logicHeight = window.innerHeight;
         let isPortraitForced = false;
 
+        // 🌟 新增：控制游戏是否已经开始，防止重复启动
+        let isGameStarted = false;
+
         let imagesLoaded = 0;
         function checkLoaded() {
             imagesLoaded++;
-            // 🌟 图片总数变成了 11 张
-            if (imagesLoaded >= 11) {
+            // 只要有图片加载结束（不管成功还是失败），就检查一次
+            // 10 张主要图片，达到要求就启动
+            if (imagesLoaded >= 10 && !isGameStarted) {
                 if (bgImg.complete && bgImg.naturalHeight !== 0) {
                     bgW = bgTargetSize; bgH = bgTargetSize * (bgImg.height / bgImg.width);
                 }
                 if (playerImg.complete && playerImg.naturalHeight !== 0) {
                     playerW = playerTargetSize; playerH = playerTargetSize * (playerImg.height / playerImg.width);
                 }
-                initScreen(); 
-                gameLoop();
+                startGame();
             }
         }
+
+        function startGame() {
+            if (isGameStarted) return;
+            isGameStarted = true;
+            initScreen(); 
+            gameLoop();
+        }
         
-        bgImg.onload = checkLoaded;
-        playerImg.onload = checkLoaded;
-        playerRightImg.onload = checkLoaded;
-        playerLeftImg.onload = checkLoaded;
-        playerUpImg.onload = checkLoaded;
-        playerDownImg.onload = checkLoaded;
-        grassImg.onload = checkLoaded;
-        pebbleImg.onload = checkLoaded;
-        electorImg.onload = checkLoaded;
-        placeImg.onload = checkLoaded;
-        pressedPlaceImg.onload = checkLoaded; 
+        // 绑定所有图片的加载事件
+        const allImages = [
+            bgImg, playerImg, playerRightImg, playerLeftImg, playerUpImg, playerDownImg,
+            grassImg, pebbleImg, electorImg, placeImg, pressedPlaceImg
+        ];
         
-        bgImg.onerror = checkLoaded;
-        playerImg.onerror = checkLoaded;
-        playerRightImg.onerror = checkLoaded;
-        playerLeftImg.onerror = checkLoaded;
-        playerUpImg.onerror = checkLoaded;
-        playerDownImg.onerror = checkLoaded;
-        grassImg.onerror = checkLoaded;
-        pebbleImg.onerror = checkLoaded;
-        electorImg.onerror = checkLoaded;
-        placeImg.onerror = checkLoaded;
-        pressedPlaceImg.onerror = checkLoaded;
+        allImages.forEach(img => {
+            img.onload = checkLoaded;
+            img.onerror = checkLoaded; // 如果某张图 404 了，也触发，防止游戏永远卡死
+        });
+
+        // 🌟 保险：如果因为网络太慢，3秒后还没加载完，也强行启动游戏！
+        setTimeout(startGame, 3000);
 
         let playerX = 0;
         let playerY = 0;
@@ -527,25 +526,19 @@
                 }
             }
 
-            // 🌟 核心：根据速度动态选择人物图片
             if (playerImg.complete && playerImg.naturalHeight !== 0) {
-                let currentPlayerImg = playerImg; // 默认静止
+                let currentPlayerImg = playerImg; 
                 
-                // 计算当前速度大小
                 const speed = Math.hypot(velocityX, velocityY);
                 
-                // 如果速度大于 0.2，说明在移动，判断朝向
                 if (speed > 0.2) {
                     if (Math.abs(velocityX) > Math.abs(velocityY)) {
-                        // 横向移动为主
                         currentPlayerImg = velocityX > 0 ? playerRightImg : playerLeftImg;
                     } else {
-                        // 纵向移动为主
                         currentPlayerImg = velocityY > 0 ? playerDownImg : playerUpImg;
                     }
                 }
 
-                // 容错处理：如果对应的方向图没加载出来，就退回默认图
                 if (!currentPlayerImg || !currentPlayerImg.complete || currentPlayerImg.naturalHeight === 0) {
                     currentPlayerImg = playerImg;
                 }
