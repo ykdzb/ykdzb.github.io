@@ -37,15 +37,12 @@
         const ctx = canvas.getContext('2d');
 
         // ================= 核心配置区 =================
-        // 🌟 调整点：方块调小(128->80)，物品调大(48->64)
-        const bgTargetSize = 80;        // 背景草地大小
-        const playerTargetSize = 48;    // 人物大小 (保持不变)
-        
-        const itemTargetSize = 64;      // 草和石头的大小
+        const bgTargetSize = 80;        
+        const playerTargetSize = 48;    
+        const itemTargetSize = 64;      
 
-        // 概率
-        const grassChance = 0.02;       
-        const pebbleChance = 0.02;      
+        const grassChance = 0.025;       
+        const pebbleChance = 0.025;      
 
         const maxSpeed = 5.5;          
         const maxRadius = 250;         
@@ -59,13 +56,13 @@
         // 放置按钮配置
         const placeBtnSize = 64;
         const placeBtnMargin = 30; 
+
+        // 🌟 新增：选框滑动速度系数（0.1 很慢，0.3 很快，0.15-0.2 适中）
+        const electorSlideSpeed = 0.2;
         // ==========================================
 
-        // 收集数据
         const collectedGrassSet = new Set();
         const collectedPebbleSet = new Set();
-        
-        // 玩家手动放置的物品记录 Map
         const placedItems = new Map();
         
         const inventory = {
@@ -74,6 +71,10 @@
         };
 
         let selectedItemIndex = 0;
+        let isPlaceButtonPressed = false;
+
+        // 🌟 新增：记录选框当前的“视觉位置”（用于平滑滑动）
+        let electorVisualX = null;
 
         // 资源加载
         const bgImg = new Image();
@@ -82,6 +83,7 @@
         const pebbleImg = new Image();
         const electorImg = new Image(); 
         const placeImg = new Image(); 
+        const pressedPlaceImg = new Image(); 
         
         bgImg.src = './Game/picture/item/grass_land.png';
         playerImg.src = './Game/picture/mob/player.png';
@@ -89,6 +91,7 @@
         pebbleImg.src = './Game/picture/item/pebble.png';
         electorImg.src = './Game/picture/ui/hotbar_elector.png';
         placeImg.src = './Game/picture/ui/place.png'; 
+        pressedPlaceImg.src = './Game/picture/ui/pressed_place.png';
 
         const digitImgs = {};
         for (let i = 0; i <= 9; i++) {
@@ -102,7 +105,7 @@
         let imagesLoaded = 0;
         function checkLoaded() {
             imagesLoaded++;
-            if (imagesLoaded >= 6) {
+            if (imagesLoaded >= 7) {
                 if (bgImg.complete && bgImg.naturalHeight !== 0) {
                     bgW = bgTargetSize; bgH = bgTargetSize * (bgImg.height / bgImg.width);
                 }
@@ -119,12 +122,14 @@
         pebbleImg.onload = checkLoaded;
         electorImg.onload = checkLoaded;
         placeImg.onload = checkLoaded;
+        pressedPlaceImg.onload = checkLoaded; 
         bgImg.onerror = checkLoaded;
         playerImg.onerror = checkLoaded;
         grassImg.onerror = checkLoaded;
         pebbleImg.onerror = checkLoaded;
         electorImg.onerror = checkLoaded;
         placeImg.onerror = checkLoaded;
+        pressedPlaceImg.onerror = checkLoaded;
 
         let playerX = 0;
         let playerY = 0;
@@ -187,7 +192,6 @@
             }
         }, { passive: true });
 
-        // 🌟 放置物品：吸附到方块正中心
         function tryPlace(targetWorldX, targetWorldY) {
             const activeItems = getActiveItems();
             if (activeItems.length === 0) return; 
@@ -215,7 +219,6 @@
             if (selectedType === 'pebble') inventory.pebble--;
         }
 
-        // 物品收集判定
         function tryCollect(screenX, screenY) {
             const camX = Math.round(playerX - logicWidth / 2);
             const camY = Math.round(playerY - logicHeight / 2);
@@ -281,6 +284,13 @@
 
         canvas.addEventListener('mousedown', (e) => { 
             if (e.button === 0) {
+                const btnX = logicWidth - placeBtnSize - placeBtnMargin;
+                const btnY = logicHeight - placeBtnSize - placeBtnMargin;
+                if (e.clientX >= btnX && e.clientX <= btnX + placeBtnSize &&
+                    e.clientY >= btnY && e.clientY <= btnY + placeBtnSize) {
+                    isPlaceButtonPressed = true;
+                }
+
                 if (checkInventoryClick(e.clientX, e.clientY)) return;
                 if (tryCollect(e.clientX, e.clientY)) return;
 
@@ -295,7 +305,10 @@
         });
         
         window.addEventListener('mouseup', (e) => { 
-            if (e.button === 0) isMouseDown = false; 
+            if (e.button === 0) {
+                isMouseDown = false; 
+                isPlaceButtonPressed = false; 
+            }
         });
 
         canvas.addEventListener('touchstart', (e) => {
@@ -308,6 +321,7 @@
                 if (touch.clientX >= btnX && touch.clientX <= btnX + placeBtnSize &&
                     touch.clientY >= btnY && touch.clientY <= btnY + placeBtnSize) {
                     
+                    isPlaceButtonPressed = true; 
                     tryPlace(playerX, playerY);
                     return; 
                 }
@@ -329,8 +343,16 @@
             }
         }, { passive: false });
         
-        window.addEventListener('touchend', (e) => { e.preventDefault(); isMouseDown = false; }, { passive: false });
-        window.addEventListener('touchcancel', () => { isMouseDown = false; });
+        window.addEventListener('touchend', (e) => { 
+            e.preventDefault(); 
+            isMouseDown = false; 
+            isPlaceButtonPressed = false; 
+        }, { passive: false });
+        
+        window.addEventListener('touchcancel', () => { 
+            isMouseDown = false; 
+            isPlaceButtonPressed = false; 
+        });
 
         function resizeCanvas() {
             const dpr = window.devicePixelRatio || 1;
@@ -396,7 +418,6 @@
             const camX = Math.round(playerX - logicWidth / 2);
             const camY = Math.round(playerY - logicHeight / 2);
 
-            // 1. 绘制背景
             if (bgImg.complete && bgImg.naturalHeight !== 0) {
                 const startX = Math.floor(camX / bgW) * bgW;
                 const startY = Math.floor(camY / bgH) * bgH;
@@ -410,7 +431,6 @@
                 }
             }
 
-            // 2. 绘制物品
             const startCellX = Math.floor(camX / bgW) - 1;
             const endCellX = Math.floor((camX + logicWidth) / bgW) + 1;
             const startCellY = Math.floor(camY / bgH) - 1;
@@ -447,7 +467,6 @@
                 }
             }
 
-            // 3. 绘制人物
             if (playerImg.complete && playerImg.naturalHeight !== 0) {
                 const playerScreenX = Math.round(logicWidth / 2 - playerW / 2);
                 const playerScreenY = Math.round(logicHeight / 2 - playerH / 2);
@@ -456,22 +475,47 @@
 
             drawInventoryUI();
 
-            // 4. 绘制右下角放置按钮
-            if (placeImg.complete && placeImg.naturalHeight !== 0) {
-                const btnX = logicWidth - placeBtnSize - placeBtnMargin;
-                const btnY = logicHeight - placeBtnSize - placeBtnMargin;
-                ctx.drawImage(placeImg, btnX, btnY, placeBtnSize, placeBtnSize);
+            const btnX = logicWidth - placeBtnSize - placeBtnMargin;
+            const btnY = logicHeight - placeBtnSize - placeBtnMargin;
+            
+            const currentPlaceImg = (isPlaceButtonPressed && pressedPlaceImg.complete && pressedPlaceImg.naturalHeight !== 0) 
+                                    ? pressedPlaceImg 
+                                    : placeImg;
+
+            if (currentPlaceImg.complete && currentPlaceImg.naturalHeight !== 0) {
+                ctx.drawImage(currentPlaceImg, btnX, btnY, placeBtnSize, placeBtnSize);
             }
         }
 
         function drawInventoryUI() {
             const activeItems = getActiveItems();
-            if (activeItems.length === 0) return;
+            if (activeItems.length === 0) {
+                electorVisualX = null; // 如果物品空了，重置选框位置
+                return;
+            }
 
             const totalWidth = activeItems.length * uiItemSize + (activeItems.length - 1) * uiGap;
             const startX = (logicWidth - totalWidth) / 2;
             const startY = logicHeight - uiItemSize - 20;
 
+            // 🌟 核心：计算选框的目标位置
+            const targetX = startX + selectedItemIndex * (uiItemSize + uiGap);
+
+            // 🌟 平滑插值逻辑
+            if (electorVisualX === null) {
+                // 第一次出现，直接对齐
+                electorVisualX = targetX;
+            } else {
+                // 每一帧向目标位置靠近一点点
+                electorVisualX += (targetX - electorVisualX) * electorSlideSpeed;
+                
+                // 如果距离极近，直接吸附，防止无限微小抖动
+                if (Math.abs(targetX - electorVisualX) < 0.1) {
+                    electorVisualX = targetX;
+                }
+            }
+
+            // 1. 先画所有的物品和数字
             for (let i = 0; i < activeItems.length; i++) {
                 const item = activeItems[i];
                 const itemX = startX + i * (uiItemSize + uiGap);
@@ -482,10 +526,13 @@
                 }
 
                 drawNumber(item.count, itemX + uiItemSize - 10, itemY + 2);
+            }
 
-                if (i === selectedItemIndex && electorImg.complete && electorImg.naturalHeight !== 0) {
-                    ctx.drawImage(electorImg, itemX - 2, itemY - 2, uiItemSize + 4, uiItemSize + 4);
-                }
+            // 2. 最后画选框，盖在最上面（使用 visualX）
+            if (electorImg.complete && electorImg.naturalHeight !== 0) {
+                // 将 visualX 取整，保证像素对齐，否则滑动时会模糊
+                const drawElectorX = Math.round(electorVisualX);
+                ctx.drawImage(electorImg, drawElectorX - 2, startY - 2, uiItemSize + 4, uiItemSize + 4);
             }
         }
 
