@@ -82,10 +82,8 @@
         let isPlaceButtonPressed = false;
         let electorVisualX = null;
 
-        // 双端模式状态
         let isTouchMode = true; 
         
-        // 摇杆状态
         let joystickActive = false;
         let joystickTouchId = null;
         let joystickCurrentX = 0;
@@ -164,29 +162,20 @@
             }
         });
 
-        // 🌟 汇总所有图片到数组，方便统一管理加载
         const allImages = [
             bgImg, playerImg, playerRightImg, playerLeftImg, playerUpImg, playerDownImg,
             grassImg, pebbleImg, electorImg, placeImg, pressedPlaceImg, joystickBaseImg, joystickControlImg
         ];
-        // 把 0-9 的数字图片也加进去
         for (let i = 0; i <= 9; i++) {
             allImages.push(digitImgs[i]);
         }
 
         let imagesLoaded = 0;
-        const totalImages = allImages.length; // 动态获取总图片数 (13 + 10 = 23)
+        const totalImages = allImages.length;
 
         function checkLoaded() {
             imagesLoaded++;
-            // 当所有图片（或失败状态）都返回时，开始游戏
             if (imagesLoaded >= totalImages) {
-                if (bgImg.complete && bgImg.naturalHeight !== 0) {
-                    bgW = bgTargetSize; bgH = bgTargetSize * (bgImg.height / bgImg.width);
-                }
-                if (playerImg.complete && playerImg.naturalHeight !== 0) {
-                    playerW = playerTargetSize; playerH = playerTargetSize * (playerImg.height / playerImg.width);
-                }
                 startGame();
             }
         }
@@ -195,23 +184,32 @@
             if (isGameStarted) return;
             isGameStarted = true;
             
+            if (bgImg.complete && bgImg.naturalHeight !== 0) {
+                bgW = bgTargetSize; bgH = bgTargetSize * (bgImg.height / bgImg.width);
+            }
+            if (playerImg.complete && playerImg.naturalHeight !== 0) {
+                playerW = playerTargetSize; playerH = playerTargetSize * (playerImg.height / playerImg.width);
+            }
+
             initScreen(); 
             gameLoop();
         }
         
         allImages.forEach(img => {
             img.onload = checkLoaded;
-            img.onerror = checkLoaded; 
-            // 如果图片已经从缓存中加载过了，直接手动触发
+            img.onerror = function() {
+                // 🌟 揪出内鬼！如果在控制台看到这个红字，说明这个图片路径错了或者文件不存在
+                console.error("图片加载失败，请检查路径: ", this.src);
+                checkLoaded(); 
+            };
             if (img.complete) {
                 checkLoaded();
             }
         });
 
-        // 保险：如果 4 秒后还没加载完（比如网络差），强制启动
-        setTimeout(startGame, 4000);
+        // 保险：如果 5 秒后还没加载完，强行启动（但此时如果背景图没出来，会一直显示 Loading）
+        setTimeout(startGame, 5000);
 
-        // 提前初始化屏幕，确保 Loading 界面也是铺满的绿
         initScreen();
 
         function initScreen() {
@@ -517,7 +515,6 @@
             let targetVy = 0;
             let isMoving = false;
 
-            // 1. 键盘模式
             let kdx = 0, kdy = 0;
             if (keys.w || keys.arrowup) kdy -= 1;
             if (keys.s || keys.arrowdown) kdy += 1;
@@ -530,7 +527,6 @@
                 targetVx = (kdx / length) * maxSpeed;
                 targetVy = (kdy / length) * maxSpeed;
             } 
-            // 2. 摇杆模式
             else if (joystickActive) {
                 isMoving = true;
                 const baseCenterX = joystickBaseMargin + joystickBaseSize / 2;
@@ -548,7 +544,6 @@
                     targetVy = (dy / dist) * maxSpeed * force;
                 }
             }
-            // 3. 鼠标拖拽模式
             else if (isMouseDown) {
                 isMoving = true;
                 const centerX = logicWidth / 2;
@@ -591,7 +586,8 @@
             ctx.fillStyle = '#3b7a3b'; 
             ctx.fillRect(0, 0, logicWidth, logicHeight);
 
-            if (!isGameStarted) {
+            // 🌟 只要背景图没加载出来，就一直显示 Loading
+            if (!bgImg.complete || bgImg.naturalHeight === 0) {
                 ctx.fillStyle = '#ffffff';
                 ctx.font = 'bold 24px "Courier New", Courier, monospace';
                 ctx.textAlign = 'center';
@@ -602,16 +598,14 @@
             const camX = Math.round(playerX - logicWidth / 2);
             const camY = Math.round(playerY - logicHeight / 2);
 
-            if (bgImg.complete && bgImg.naturalHeight !== 0) {
-                const startX = Math.floor(camX / bgW) * bgW;
-                const startY = Math.floor(camY / bgH) * bgH;
-                const endX = camX + logicWidth;
-                const endY = camY + logicHeight;
+            const startX = Math.floor(camX / bgW) * bgW;
+            const startY = Math.floor(camY / bgH) * bgH;
+            const endX = camX + logicWidth;
+            const endY = camY + logicHeight;
 
-                for (let x = startX; x <= endX; x += bgW) {
-                    for (let y = startY; y <= endY; y += bgH) {
-                        ctx.drawImage(bgImg, x - camX, y - camY, bgW, bgH);
-                    }
+            for (let x = startX; x <= endX; x += bgW) {
+                for (let y = startY; y <= endY; y += bgH) {
+                    ctx.drawImage(bgImg, x - camX, y - camY, bgW, bgH);
                 }
             }
 
