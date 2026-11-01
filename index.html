@@ -25,7 +25,7 @@
             position: absolute;
             top: 0;
             left: 0;
-            outline: none; /* 防止点击时出现边框 */
+            outline: none;
         }
         canvas:active {
             cursor: grabbing;
@@ -128,18 +128,16 @@
         let mouseX = 0;
         let mouseY = 0;
 
-        // 🌟 键盘状态记录（全部转为小写）
+        // 键盘状态
         const keys = {
             w: false, a: false, s: false, d: false,
             arrowup: false, arrowleft: false, arrowdown: false, arrowright: false
         };
 
-        // 🌟 升级版键盘监听，兼容大小写
         window.addEventListener('keydown', (e) => {
             const key = e.key.toLowerCase();
             if (keys.hasOwnProperty(key)) {
                 keys[key] = true;
-                // 防止方向键滚动网页
                 if(key.startsWith('arrow')) e.preventDefault();
             }
         });
@@ -151,7 +149,6 @@
             }
         });
 
-        // 防止用户在网页上按空格或者Tab导致焦点丢失
         window.addEventListener('keydown', (e) => {
             if (e.key === ' ' || e.key === 'Tab') {
                 e.preventDefault();
@@ -394,12 +391,11 @@
             }
         });
         
+        // 🌟 重要修改：无论是否按住鼠标，都要实时更新鼠标位置，用于控制方向
         window.addEventListener('mousemove', (e) => { 
-            if (isMouseDown) { 
-                const { x, y } = getLogicCoords(e.clientX, e.clientY);
-                mouseX = x; 
-                mouseY = y; 
-            } 
+            const { x, y } = getLogicCoords(e.clientX, e.clientY);
+            mouseX = x; 
+            mouseY = y; 
         });
         
         window.addEventListener('mouseup', (e) => { 
@@ -454,54 +450,49 @@
         });
 
         function update() {
-            let isKeyboardMoving = false;
             let targetVx = 0;
             let targetVy = 0;
+            let isMoving = false;
 
-            // 🌟 键盘控制检测（全部用小写）
-            let kdx = 0, kdy = 0;
-            if (keys.w || keys.arrowup) kdy -= 1;
-            if (keys.s || keys.arrowdown) kdy += 1;
-            if (keys.a || keys.arrowleft) kdx -= 1;
-            if (keys.d || keys.arrowright) kdx += 1;
+            // 🌟 1. 判断是否按下了移动键 (WASD 或 方向键)
+            const keyPressed = keys.w || keys.a || keys.s || keys.d || keys.arrowup || keys.arrowleft || keys.arrowdown || keys.arrowright;
 
-            if (kdx !== 0 || kdy !== 0) {
-                isKeyboardMoving = true;
-                // 归一化，确保斜着走不会比直走快
-                const length = Math.hypot(kdx, kdy);
-                kdx /= length;
-                kdy /= length;
-                targetVx = kdx * maxSpeed;
-                targetVy = kdy * maxSpeed;
-            }
-
-            // 应用物理逻辑
-            if (isKeyboardMoving) {
-                // 键盘平滑移动
-                velocityX += (targetVx - velocityX) * accelerationSmooth;
-                velocityY += (targetVy - velocityY) * accelerationSmooth;
-            } else if (isMouseDown) {
-                // 鼠标或触摸平滑拖动
+            if (keyPressed) {
+                // 按下了移动键，朝鼠标位置移动
+                isMoving = true;
                 const centerX = logicWidth / 2;
                 const centerY = logicHeight / 2;
                 const dx = mouseX - centerX;
                 const dy = mouseY - centerY;
                 const distance = Math.hypot(dx, dy);
 
-                let mouseTargetVx = 0;
-                let mouseTargetVy = 0;
+                // 加一个很小的死区，防止鼠标正好在正中心时人物原地鬼畜
+                if (distance > 5) { 
+                    targetVx = (dx / distance) * maxSpeed;
+                    targetVy = (dy / distance) * maxSpeed;
+                }
+            } else if (isMouseDown) {
+                // 🌟 2. 鼠标/触摸拖拽逻辑（未按键盘时）
+                isMoving = true;
+                const centerX = logicWidth / 2;
+                const centerY = logicHeight / 2;
+                const dx = mouseX - centerX;
+                const dy = mouseY - centerY;
+                const distance = Math.hypot(dx, dy);
 
                 if (distance > 10) { 
                     const effectiveDist = Math.min(distance, maxRadius);
                     const currentMaxSpeed = (effectiveDist / maxRadius) * maxSpeed;
-                    mouseTargetVx = (dx / distance) * currentMaxSpeed;
-                    mouseTargetVy = (dy / distance) * currentMaxSpeed;
+                    targetVx = (dx / distance) * currentMaxSpeed;
+                    targetVy = (dy / distance) * currentMaxSpeed;
                 }
+            }
 
-                velocityX += (mouseTargetVx - velocityX) * accelerationSmooth;
-                velocityY += (mouseTargetVy - velocityY) * accelerationSmooth;
+            // 🌟 3. 应用物理速度
+            if (isMoving) {
+                velocityX += (targetVx - velocityX) * accelerationSmooth;
+                velocityY += (targetVy - velocityY) * accelerationSmooth;
             } else {
-                // 松开后的惯性滑行（摩擦）
                 velocityX *= friction;
                 velocityY *= friction;
                 if (Math.abs(velocityX) < 0.05) velocityX = 0;
@@ -582,12 +573,14 @@
             const playerScreenX = Math.round(logicWidth / 2 - playerW / 2);
             const playerScreenY = Math.round(logicHeight / 2 - playerH / 2);
             
+            // 🌟 4. 人物图像方向完全由“当前速度”决定，与鼠标位置无关！
             if (playerImg.complete && playerImg.naturalHeight !== 0) {
                 let currentPlayerImg = playerImg; 
                 
                 const speed = Math.hypot(velocityX, velocityY);
                 
                 if (speed > 0.2) {
+                    // 根据实际移动的物理速度判断朝向
                     if (Math.abs(velocityY) > Math.abs(velocityX)) {
                         currentPlayerImg = velocityY > 0 ? playerDownImg : playerUpImg;
                     } else {
