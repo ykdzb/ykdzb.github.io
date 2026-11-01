@@ -116,15 +116,12 @@
         let logicWidth = window.innerWidth;
         let logicHeight = window.innerHeight;
         let isPortraitForced = false;
-
-        // 🌟 新增：控制游戏是否已经开始，防止重复启动
         let isGameStarted = false;
 
         let imagesLoaded = 0;
         function checkLoaded() {
             imagesLoaded++;
-            // 只要有图片加载结束（不管成功还是失败），就检查一次
-            // 10 张主要图片，达到要求就启动
+            // 只要有 10 张图有响应（不管成功失败），就开始游戏，防止卡死
             if (imagesLoaded >= 10 && !isGameStarted) {
                 if (bgImg.complete && bgImg.naturalHeight !== 0) {
                     bgW = bgTargetSize; bgH = bgTargetSize * (bgImg.height / bgImg.width);
@@ -143,7 +140,6 @@
             gameLoop();
         }
         
-        // 绑定所有图片的加载事件
         const allImages = [
             bgImg, playerImg, playerRightImg, playerLeftImg, playerUpImg, playerDownImg,
             grassImg, pebbleImg, electorImg, placeImg, pressedPlaceImg
@@ -151,10 +147,9 @@
         
         allImages.forEach(img => {
             img.onload = checkLoaded;
-            img.onerror = checkLoaded; // 如果某张图 404 了，也触发，防止游戏永远卡死
+            img.onerror = checkLoaded; 
         });
 
-        // 🌟 保险：如果因为网络太慢，3秒后还没加载完，也强行启动游戏！
         setTimeout(startGame, 3000);
 
         let playerX = 0;
@@ -526,26 +521,38 @@
                 }
             }
 
+            // 🌟 人物渲染与防隐身兜底
+            const playerScreenX = Math.round(logicWidth / 2 - playerW / 2);
+            const playerScreenY = Math.round(logicHeight / 2 - playerH / 2);
+            
+            // 先判断人物图到底能不能用
             if (playerImg.complete && playerImg.naturalHeight !== 0) {
                 let currentPlayerImg = playerImg; 
                 
                 const speed = Math.hypot(velocityX, velocityY);
                 
                 if (speed > 0.2) {
-                    if (Math.abs(velocityX) > Math.abs(velocityY)) {
-                        currentPlayerImg = velocityX > 0 ? playerRightImg : playerLeftImg;
-                    } else {
+                    // 这里稍微调整了一下优先判断纵向，手感更好
+                    if (Math.abs(velocityY) > Math.abs(velocityX)) {
                         currentPlayerImg = velocityY > 0 ? playerDownImg : playerUpImg;
+                    } else {
+                        currentPlayerImg = velocityX > 0 ? playerRightImg : playerLeftImg;
                     }
                 }
 
                 if (!currentPlayerImg || !currentPlayerImg.complete || currentPlayerImg.naturalHeight === 0) {
-                    currentPlayerImg = playerImg;
+                    currentPlayerImg = playerImg; // 如果新方向图没加载出来，退回默认图
                 }
 
-                const playerScreenX = Math.round(logicWidth / 2 - playerW / 2);
-                const playerScreenY = Math.round(logicHeight / 2 - playerH / 2);
                 ctx.drawImage(currentPlayerImg, playerScreenX, playerScreenY, playerW, playerH);
+            } else {
+                // 🌟 终极兜底：如果连 player.png 都挂了，画一个亮蓝色的方块，让你能看见自己！
+                ctx.fillStyle = '#3498db'; 
+                ctx.fillRect(playerScreenX, playerScreenY, playerW, playerH);
+                // 画两个黑点眼睛，让它看起来像个小人
+                ctx.fillStyle = '#000';
+                ctx.fillRect(playerScreenX + 10, playerScreenY + 10, 6, 10);
+                ctx.fillRect(playerScreenX + 32, playerScreenY + 10, 6, 10);
             }
 
             drawInventoryUI();
