@@ -26,9 +26,53 @@
         canvas:active {
             cursor: grabbing;
         }
+
+        /* 🌟 新增：横屏提示遮罩层 */
+        #rotate-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #1a1a1a;
+            color: #fff;
+            display: none; /* 默认隐藏 */
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        #rotate-overlay .icon {
+            width: 64px;
+            height: 64px;
+            border: 4px solid #fff;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            animation: rotate-anim 2s infinite ease-in-out;
+        }
+        @keyframes rotate-anim {
+            0% { transform: rotate(0deg); }
+            50% { transform: rotate(90deg); }
+            100% { transform: rotate(90deg); }
+        }
+        
+        /* 当屏幕是竖屏，且宽度小于1024（基本判定为手机/平板）时显示遮罩 */
+        @media (orientation: portrait) and (max-width: 1024px) {
+            #rotate-overlay {
+                display: flex;
+            }
+        }
     </style>
 </head>
 <body>
+
+    <!-- 🌟 横屏引导遮罩 -->
+    <div id="rotate-overlay">
+        <div class="icon"></div>
+        <h2>请旋转手机至横屏</h2>
+        <p style="color: #888; margin-top: 10px;">以获得最佳游戏体验</p>
+    </div>
 
     <canvas id="gameCanvas"></canvas>
 
@@ -49,16 +93,14 @@
         const accelerationSmooth = 0.15; 
         const friction = 0.94;           
         
-        // 🌟 调整点：UI 整体缩小为原来的 3/5 (约 0.6 倍)
-        const uiItemSize = 38;          // 原 64
-        const uiGap = 9;                // 原 15
-        const uiBottomMargin = 12;      // 原 20
+        // UI 配置 (3/5 尺寸)
+        const uiItemSize = 38;          
+        const uiGap = 9;                
+        const uiBottomMargin = 12;      
         
-        // 放置按钮配置
-        const placeBtnSize = 38;        // 原 64
-        const placeBtnMargin = 18;      // 原 30
+        const placeBtnSize = 38;        
+        const placeBtnMargin = 18;      
 
-        // 选框滑动速度系数
         const electorSlideSpeed = 0.2;
         // ==========================================
 
@@ -141,6 +183,52 @@
         let isMouseDown = false;
         let mouseX = 0;
         let mouseY = 0;
+
+        // 🌟 自动尝试请求全屏并锁定横屏（部分安卓浏览器支持）
+        function tryLockLandscape() {
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            if (isMobile) {
+                // 尝试请求全屏
+                if (document.documentElement.requestFullscreen) {
+                    document.documentElement.requestFullscreen().catch(()=>{});
+                } else if (document.documentElement.webkitRequestFullscreen) {
+                    document.documentElement.webkitRequestFullscreen().catch(()=>{});
+                }
+                
+                // 尝试锁定横屏
+                if (screen.orientation && screen.orientation.lock) {
+                    screen.orientation.lock('landscape').catch(()=>{});
+                }
+            }
+        }
+
+        // 在用户第一次点击屏幕时尝试执行（浏览器要求必须有用户交互）
+        window.addEventListener('touchstart', tryLockLandscape, { once: true });
+        window.addEventListener('mousedown', tryLockLandscape, { once: true });
+
+        // 监听屏幕旋转/缩放，重新计算画布大小
+        function resizeCanvas() {
+            const dpr = window.devicePixelRatio || 1;
+            logicWidth = window.innerWidth;
+            logicHeight = window.innerHeight;
+
+            canvas.width = logicWidth * dpr;
+            canvas.height = logicHeight * dpr;
+            canvas.style.width = logicWidth + 'px';
+            canvas.style.height = logicHeight + 'px';
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            
+            // 重置视觉选框，防止旋转后错位
+            electorVisualX = null; 
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        // 监听设备方向变化
+        window.addEventListener('orientationchange', () => {
+            setTimeout(resizeCanvas, 100); // iOS 需要延迟一下获取准确宽高
+        });
+        
+        resizeCanvas();
 
         function hash(x, y, seed = 0) {
             let n = x * 374761393 + y * 668265263 + seed * 144665;
@@ -353,21 +441,6 @@
             isPlaceButtonPressed = false; 
         });
 
-        function resizeCanvas() {
-            const dpr = window.devicePixelRatio || 1;
-            logicWidth = window.innerWidth;
-            logicHeight = window.innerHeight;
-
-            canvas.width = logicWidth * dpr;
-            canvas.height = logicHeight * dpr;
-            canvas.style.width = logicWidth + 'px';
-            canvas.style.height = logicHeight + 'px';
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        }
-
-        window.addEventListener('resize', resizeCanvas);
-        resizeCanvas();
-
         function update() {
             if (isMouseDown) {
                 const centerX = logicWidth / 2;
@@ -517,7 +590,6 @@
                     ctx.drawImage(item.img, itemX, itemY, uiItemSize, uiItemSize);
                 }
 
-                // 数字坐标基于新的 uiItemSize 进行了一定微调
                 drawNumber(item.count, itemX + uiItemSize - 6, itemY + 2);
             }
 
@@ -530,7 +602,6 @@
         function drawNumber(num, endX, endY) {
             const str = num.toString();
             let currentRightX = endX;
-            // 🌟 数字整体稍微缩小一点
             const numScale = 1.5; 
 
             for (let i = str.length - 1; i >= 0; i--) {
