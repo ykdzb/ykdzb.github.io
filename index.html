@@ -11,7 +11,7 @@
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background-color: #3b7a3b; 
+            background-color: #1a1a1a; /* 竖屏旋转后露出的边缘底色 */
             user-select: none;
             -webkit-user-select: none;
             -webkit-tap-highlight-color: transparent;
@@ -26,53 +26,9 @@
         canvas:active {
             cursor: grabbing;
         }
-
-        /* 🌟 新增：横屏提示遮罩层 */
-        #rotate-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background-color: #1a1a1a;
-            color: #fff;
-            display: none; /* 默认隐藏 */
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 9999;
-            font-family: 'Courier New', Courier, monospace;
-        }
-        #rotate-overlay .icon {
-            width: 64px;
-            height: 64px;
-            border: 4px solid #fff;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            animation: rotate-anim 2s infinite ease-in-out;
-        }
-        @keyframes rotate-anim {
-            0% { transform: rotate(0deg); }
-            50% { transform: rotate(90deg); }
-            100% { transform: rotate(90deg); }
-        }
-        
-        /* 当屏幕是竖屏，且宽度小于1024（基本判定为手机/平板）时显示遮罩 */
-        @media (orientation: portrait) and (max-width: 1024px) {
-            #rotate-overlay {
-                display: flex;
-            }
-        }
     </style>
 </head>
 <body>
-
-    <!-- 🌟 横屏引导遮罩 -->
-    <div id="rotate-overlay">
-        <div class="icon"></div>
-        <h2>请旋转手机至横屏</h2>
-        <p style="color: #888; margin-top: 10px;">以获得最佳游戏体验</p>
-    </div>
 
     <canvas id="gameCanvas"></canvas>
 
@@ -143,6 +99,9 @@
         let bgW = bgTargetSize, bgH = bgTargetSize;
         let playerW = playerTargetSize, playerH = playerTargetSize;
 
+        // 🌟 新增：是否是竖屏旋转状态
+        let isPortraitRotated = false;
+
         let imagesLoaded = 0;
         function checkLoaded() {
             imagesLoaded++;
@@ -153,6 +112,7 @@
                 if (playerImg.complete && playerImg.naturalHeight !== 0) {
                     playerW = playerTargetSize; playerH = playerTargetSize * (playerImg.height / playerImg.width);
                 }
+                resizeCanvas(); // 确保所有资源加载完后重算一次画布
                 gameLoop();
             }
         }
@@ -184,48 +144,60 @@
         let mouseX = 0;
         let mouseY = 0;
 
-        // 🌟 自动尝试请求全屏并锁定横屏（部分安卓浏览器支持）
-        function tryLockLandscape() {
-            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-            if (isMobile) {
-                // 尝试请求全屏
-                if (document.documentElement.requestFullscreen) {
-                    document.documentElement.requestFullscreen().catch(()=>{});
-                } else if (document.documentElement.webkitRequestFullscreen) {
-                    document.documentElement.webkitRequestFullscreen().catch(()=>{});
-                }
-                
-                // 尝试锁定横屏
-                if (screen.orientation && screen.orientation.lock) {
-                    screen.orientation.lock('landscape').catch(()=>{});
-                }
+        // 🌟 核心：屏幕物理坐标转换为逻辑（旋转后）坐标
+        function getLogicCoords(clientX, clientY) {
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            if (isPortraitRotated) {
+                // 顺时针旋转90度后：物理的 Y 轴变逻辑的 X 轴，物理的 X 轴反向变逻辑的 Y 轴
+                return {
+                    x: clientY,
+                    y: w - clientX
+                };
+            } else {
+                return { x: clientX, y: clientY };
             }
         }
 
-        // 在用户第一次点击屏幕时尝试执行（浏览器要求必须有用户交互）
-        window.addEventListener('touchstart', tryLockLandscape, { once: true });
-        window.addEventListener('mousedown', tryLockLandscape, { once: true });
-
-        // 监听屏幕旋转/缩放，重新计算画布大小
+        // 🌟 核心：画布旋转与自适应
         function resizeCanvas() {
             const dpr = window.devicePixelRatio || 1;
-            logicWidth = window.innerWidth;
-            logicHeight = window.innerHeight;
+            const w = window.innerWidth;
+            const h = window.innerHeight;
 
-            canvas.width = logicWidth * dpr;
-            canvas.height = logicHeight * dpr;
-            canvas.style.width = logicWidth + 'px';
-            canvas.style.height = logicHeight + 'px';
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            // 物理画布铺满屏幕
+            canvas.width = w * dpr;
+            canvas.height = h * dpr;
+            canvas.style.width = w + 'px';
+            canvas.style.height = h + 'px';
+
+            ctx.setTransform(1, 0, 0, 1, 0, 0); // 重置矩阵
+
+            if (h > w) {
+                // 竖屏：游戏逻辑宽度等于屏幕高度，高度等于屏幕宽度
+                isPortraitRotated = true;
+                logicWidth = h;
+                logicHeight = w;
+                
+                ctx.scale(dpr, dpr);
+                ctx.translate(logicWidth, 0); // 向右平移
+                ctx.rotate(Math.PI / 2);      // 顺时针旋转90度
+            } else {
+                // 横屏：正常渲染
+                isPortraitRotated = false;
+                logicWidth = w;
+                logicHeight = h;
+                
+                ctx.scale(dpr, dpr);
+            }
             
             // 重置视觉选框，防止旋转后错位
             electorVisualX = null; 
         }
 
         window.addEventListener('resize', resizeCanvas);
-        // 监听设备方向变化
         window.addEventListener('orientationchange', () => {
-            setTimeout(resizeCanvas, 100); // iOS 需要延迟一下获取准确宽高
+            setTimeout(resizeCanvas, 100); 
         });
         
         resizeCanvas();
@@ -243,7 +215,7 @@
             return items;
         }
 
-        function checkInventoryClick(screenX, screenY) {
+        function checkInventoryClick(logicX, logicY) {
             const activeItems = getActiveItems();
             if (activeItems.length === 0) return false;
 
@@ -251,14 +223,14 @@
             const startX = (logicWidth - totalWidth) / 2;
             const startY = logicHeight - uiItemSize - uiBottomMargin;
 
-            if (screenX >= startX - 10 && screenX <= startX + totalWidth + 10 && 
-                screenY >= startY - 10 && screenY <= startY + uiItemSize + 10) {
+            if (logicX >= startX - 10 && logicX <= startX + totalWidth + 10 && 
+                logicY >= startY - 10 && logicY <= startY + uiItemSize + 10) {
                 
                 for (let i = 0; i < activeItems.length; i++) {
                     const itemX = startX + i * (uiItemSize + uiGap);
                     const itemY = startY;
-                    if (screenX >= itemX && screenX <= itemX + uiItemSize &&
-                        screenY >= itemY && screenY <= itemY + uiItemSize) {
+                    if (logicX >= itemX && logicX <= itemX + uiItemSize &&
+                        logicY >= itemY && logicY <= itemY + uiItemSize) {
                         
                         selectedItemIndex = i; 
                         return true; 
@@ -306,12 +278,12 @@
             if (selectedType === 'pebble') inventory.pebble--;
         }
 
-        function tryCollect(screenX, screenY) {
+        function tryCollect(logicX, logicY) {
             const camX = Math.round(playerX - logicWidth / 2);
             const camY = Math.round(playerY - logicHeight / 2);
             
-            const clickWorldX = screenX + camX;
-            const clickWorldY = screenY + camY;
+            const clickWorldX = logicX + camX;
+            const clickWorldY = logicY + camY;
 
             const startCellX = Math.floor((camX - itemTargetSize) / bgW) - 1;
             const endCellX = Math.floor((camX + logicWidth + itemTargetSize) / bgW) + 1;
@@ -360,35 +332,40 @@
             return false;
         }
 
+        // 🌟 事件坐标全部替换为 getLogicCoords
         canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault(); 
+            const { x, y } = getLogicCoords(e.clientX, e.clientY);
             const camX = Math.round(playerX - logicWidth / 2);
             const camY = Math.round(playerY - logicHeight / 2);
-            const worldX = e.clientX + camX;
-            const worldY = e.clientY + camY;
-            tryPlace(worldX, worldY);
+            tryPlace(x + camX, y + camY);
         });
 
         canvas.addEventListener('mousedown', (e) => { 
             if (e.button === 0) {
+                const { x, y } = getLogicCoords(e.clientX, e.clientY);
+                
                 const btnX = logicWidth - placeBtnSize - placeBtnMargin;
                 const btnY = logicHeight - placeBtnSize - placeBtnMargin;
-                if (e.clientX >= btnX && e.clientX <= btnX + placeBtnSize &&
-                    e.clientY >= btnY && e.clientY <= btnY + placeBtnSize) {
+                if (x >= btnX && x <= btnX + placeBtnSize && y >= btnY && y <= btnY + placeBtnSize) {
                     isPlaceButtonPressed = true;
                 }
 
-                if (checkInventoryClick(e.clientX, e.clientY)) return;
-                if (tryCollect(e.clientX, e.clientY)) return;
+                if (checkInventoryClick(x, y)) return;
+                if (tryCollect(x, y)) return;
 
                 isMouseDown = true; 
-                mouseX = e.clientX; 
-                mouseY = e.clientY; 
+                mouseX = x; 
+                mouseY = y; 
             }
         });
         
         window.addEventListener('mousemove', (e) => { 
-            if (isMouseDown) { mouseX = e.clientX; mouseY = e.clientY; } 
+            if (isMouseDown) { 
+                const { x, y } = getLogicCoords(e.clientX, e.clientY);
+                mouseX = x; 
+                mouseY = y; 
+            } 
         });
         
         window.addEventListener('mouseup', (e) => { 
@@ -402,31 +379,32 @@
             e.preventDefault();
             if (e.touches.length > 0) {
                 const touch = e.touches[0];
+                const { x, y } = getLogicCoords(touch.clientX, touch.clientY);
                 
                 const btnX = logicWidth - placeBtnSize - placeBtnMargin;
                 const btnY = logicHeight - placeBtnSize - placeBtnMargin;
-                if (touch.clientX >= btnX && touch.clientX <= btnX + placeBtnSize &&
-                    touch.clientY >= btnY && touch.clientY <= btnY + placeBtnSize) {
-                    
+                if (x >= btnX && x <= btnX + placeBtnSize && y >= btnY && y <= btnY + placeBtnSize) {
                     isPlaceButtonPressed = true; 
                     tryPlace(playerX, playerY);
                     return; 
                 }
 
-                if (checkInventoryClick(touch.clientX, touch.clientY)) return;
-                if (tryCollect(touch.clientX, touch.clientY)) return;
+                if (checkInventoryClick(x, y)) return;
+                if (tryCollect(x, y)) return;
 
                 isMouseDown = true;
-                mouseX = touch.clientX;
-                mouseY = touch.clientY;
+                mouseX = x;
+                mouseY = y;
             }
         }, { passive: false });
         
         window.addEventListener('touchmove', (e) => {
             e.preventDefault();
             if (isMouseDown && e.touches.length > 0) {
-                mouseX = e.touches[0].clientX;
-                mouseY = e.touches[0].clientY;
+                const touch = e.touches[0];
+                const { x, y } = getLogicCoords(touch.clientX, touch.clientY);
+                mouseX = x;
+                mouseY = y;
             }
         }, { passive: false });
         
