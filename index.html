@@ -3,16 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Alpha 1.0 - Debug Mode</title>
+    <title>Alpha 1.0</title>
     <style>
         body, html {
             margin: 0; padding: 0; width: 100%; height: 100%;
             overflow: hidden; background-color: #3b7a3b; user-select: none;
+            -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
         }
         canvas {
             display: block; image-rendering: pixelated; image-rendering: crisp-edges;
             touch-action: none; cursor: grab; position: absolute; top: 0; left: 0; outline: none;
         }
+        canvas:active { cursor: grabbing; }
     </style>
 </head>
 <body>
@@ -21,6 +23,7 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
 
+        // ================= 核心配置区 =================
         const bgTargetSize = 80, playerTargetSize = 48, itemTargetSize = 64;
         const grassChance = 0.025, pebbleChance = 0.025;
         const maxSpeed = 5.5, maxRadius = 250, accelerationSmooth = 0.15, friction = 0.94;
@@ -40,7 +43,6 @@
         const placeImg = new Image(), pressedPlaceImg = new Image();
         const joystickBaseImg = new Image(), joystickControlImg = new Image();
         
-        // 如果路径错了，这里会 404
         bgImg.src = './Game/picture/item/grass_land.png';
         playerImg.src = './Game/picture/mob/player.png';
         playerRightImg.src = './Game/picture/mob/player_right.png';
@@ -65,8 +67,9 @@
         let logicWidth = window.innerWidth, logicHeight = window.innerHeight;
         let isPortraitForced = false, isGameStarted = false;
         let playerX = 0, playerY = 0, velocityX = 0, velocityY = 0;
+        let isMouseDown = false, mouseX = 0, mouseY = 0;
         
-        let errors = []; // 收集报错的图片路径
+        let errors = []; // 收集报错的图片
 
         const keys = { w: false, a: false, s: false, d: false, arrowup: false, arrowleft: false, arrowdown: false, arrowright: false };
         window.addEventListener('keydown', (e) => {
@@ -108,7 +111,7 @@
         allImages.forEach(img => {
             img.onload = checkLoaded;
             img.onerror = function() {
-                errors.push(this.src.split('/').pop()); // 记录失败的图片名字
+                errors.push(this.src.split('/').pop());
                 checkLoaded(); 
             };
             if (img.complete) checkLoaded();
@@ -149,6 +152,206 @@
             return ((n ^ (n >> 16)) >>> 0) / 4294967296;
         }
 
+        function getActiveItems() {
+            const items = [];
+            if (inventory.grass > 0) items.push({ type: 'grass', img: grassImg, count: inventory.grass });
+            if (inventory.pebble > 0) items.push({ type: 'pebble', img: pebbleImg, count: inventory.pebble });
+            return items;
+        }
+
+        function checkInventoryClick(logicX, logicY) {
+            const activeItems = getActiveItems();
+            if (activeItems.length === 0) return false;
+
+            const totalWidth = activeItems.length * uiItemSize + (activeItems.length - 1) * uiGap;
+            const startX = (logicWidth - totalWidth) / 2;
+            const startY = logicHeight - uiItemSize - uiBottomMargin;
+
+            if (logicX >= startX - 10 && logicX <= startX + totalWidth + 10 && 
+                logicY >= startY - 10 && logicY <= startY + uiItemSize + 10) {
+                
+                for (let i = 0; i < activeItems.length; i++) {
+                    const itemX = startX + i * (uiItemSize + uiGap);
+                    const itemY = startY;
+                    if (logicX >= itemX && logicX <= itemX + uiItemSize &&
+                        logicY >= itemY && logicY <= itemY + uiItemSize) {
+                        selectedItemIndex = i; 
+                        return true; 
+                    }
+                }
+            }
+            return false;
+        }
+
+        window.addEventListener('wheel', (e) => {
+            const activeItems = getActiveItems();
+            if (activeItems.length <= 1) return;
+            if (e.deltaY < 0) selectedItemIndex = (selectedItemIndex - 1 + activeItems.length) % activeItems.length;
+            else selectedItemIndex = (selectedItemIndex + 1) % activeItems.length;
+        }, { passive: true });
+
+        function tryPlace(targetWorldX, targetWorldY) {
+            const activeItems = getActiveItems();
+            if (activeItems.length === 0) return; 
+            const selectedType = activeItems[selectedItemIndex].type;
+
+            const cx = Math.floor(targetWorldX / bgW);
+            const cy = Math.floor(targetWorldY / bgH);
+            const pointX = cx * bgW + bgW / 2;
+            const pointY = cy * bgH + bgH / 2;
+            const key = `${pointX},${pointY}`;
+
+            const itemRand = hash(cx, cy, 1);
+            let hasNatural = false;
+            if (itemRand < grassChance) { if (!collectedGrassSet.has(key)) hasNatural = true; } 
+            else if (itemRand >= grassChance && itemRand < grassChance + pebbleChance) { if (!collectedPebbleSet.has(key)) hasNatural = true; }
+
+            if (hasNatural || placedItems.has(key)) return;
+            placedItems.set(key, selectedType);
+            if (selectedType === 'grass') inventory.grass--;
+            if (selectedType === 'pebble') inventory.pebble--;
+        }
+
+        function tryCollect(logicX, logicY) {
+            const camX = Math.round(playerX - logicWidth / 2), camY = Math.round(playerY - logicHeight / 2);
+            const clickWorldX = logicX + camX, clickWorldY = logicY + camY;
+
+            const startCellX = Math.floor((camX - itemTargetSize) / bgW) - 1;
+            const endCellX = Math.floor((camX + logicWidth + itemTargetSize) / bgW) + 1;
+            const startCellY = Math.floor((camY - itemTargetSize) / bgH) - 1;
+            const endCellY = Math.floor((camY + logicHeight + itemTargetSize) / bgH) + 1;
+
+            for (let cx = startCellX; cx <= endCellX; cx++) {
+                for (let cy = startCellY; cy <= endCellY; cy++) {
+                    const worldX = cx * bgW + bgW / 2, worldY = cy * bgH + bgH / 2;
+                    const key = `${worldX},${worldY}`;
+                    const hitW = itemTargetSize + 5, hitH = itemTargetSize + 5;
+                    
+                    if (clickWorldX > worldX - hitW / 2 && clickWorldX < worldX + hitW / 2 &&
+                        clickWorldY > worldY - hitH / 2 && clickWorldY < worldY + hitH / 2) {
+                        
+                        if (placedItems.has(key)) {
+                            const type = placedItems.get(key);
+                            placedItems.delete(key);
+                            if (type === 'grass') inventory.grass++;
+                            if (type === 'pebble') inventory.pebble++;
+                            return true;
+                        }
+
+                        const itemRand = hash(cx, cy, 1); 
+                        if (itemRand < grassChance) {
+                            if (!collectedGrassSet.has(key)) { collectedGrassSet.add(key); inventory.grass++; return true; }
+                        } else if (itemRand >= grassChance && itemRand < grassChance + pebbleChance) {
+                            if (!collectedPebbleSet.has(key)) { collectedPebbleSet.add(key); inventory.pebble++; return true; }
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        // ================= 输入事件恢复区 =================
+
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault(); 
+            const { x, y } = getLogicCoords(e.clientX, e.clientY);
+            const camX = Math.round(playerX - logicWidth / 2);
+            const camY = Math.round(playerY - logicHeight / 2);
+            tryPlace(x + camX, y + camY);
+        });
+
+        canvas.addEventListener('mousedown', (e) => { 
+            if (e.button === 0) {
+                const { x, y } = getLogicCoords(e.clientX, e.clientY);
+                if (tryCollect(x, y)) return;
+                isMouseDown = true; 
+                mouseX = x; mouseY = y; 
+            }
+        });
+        
+        window.addEventListener('mousemove', (e) => { 
+            if (isMouseDown) { 
+                const { x, y } = getLogicCoords(e.clientX, e.clientY);
+                mouseX = x; mouseY = y; 
+            } 
+        });
+        
+        window.addEventListener('mouseup', (e) => { 
+            if (e.button === 0) isMouseDown = false; 
+        });
+
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const touch = e.changedTouches[i];
+                const { x, y } = getLogicCoords(touch.clientX, touch.clientY);
+                
+                const baseCenterX = joystickBaseMargin + joystickBaseSize / 2;
+                const baseCenterY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
+                const distToBase = Math.hypot(x - baseCenterX, y - baseCenterY);
+                
+                if (distToBase < joystickBaseSize) {
+                    joystickActive = true; joystickTouchId = touch.identifier;
+                    joystickCurrentX = x; joystickCurrentY = y;
+                    continue;
+                }
+
+                const btnX = logicWidth - placeBtnSize - placeBtnMargin;
+                const btnY = logicHeight - placeBtnSize - placeBtnMargin;
+                if (x >= btnX && x <= btnX + placeBtnSize && y >= btnY && y <= btnY + placeBtnSize) {
+                    isPlaceButtonPressed = true; 
+                    tryPlace(playerX, playerY);
+                    continue;
+                }
+
+                if (checkInventoryClick(x, y)) continue;
+                if (tryCollect(x, y)) continue;
+
+                isMouseDown = true; mouseX = x; mouseY = y;
+            }
+        }, { passive: false });
+        
+        window.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const touch = e.changedTouches[i];
+                const { x, y } = getLogicCoords(touch.clientX, touch.clientY);
+
+                if (joystickActive && touch.identifier === joystickTouchId) {
+                    const baseCenterX = joystickBaseMargin + joystickBaseSize / 2;
+                    const baseCenterY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
+                    let dx = x - baseCenterX, dy = y - baseCenterY;
+                    const dist = Math.hypot(dx, dy), maxDist = joystickBaseSize / 2; 
+                    if (dist > maxDist) { dx = (dx / dist) * maxDist; dy = (dy / dist) * maxDist; }
+                    joystickCurrentX = baseCenterX + dx; joystickCurrentY = baseCenterY + dy;
+                } else if (isMouseDown) {
+                    mouseX = x; mouseY = y;
+                }
+            }
+        }, { passive: false });
+        
+        window.addEventListener('touchend', (e) => { 
+            e.preventDefault(); 
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const touch = e.changedTouches[i];
+                if (touch.identifier === joystickTouchId) {
+                    joystickActive = false; joystickTouchId = null;
+                    joystickCurrentX = joystickBaseMargin + joystickBaseSize / 2;
+                    joystickCurrentY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
+                }
+            }
+            isMouseDown = false; isPlaceButtonPressed = false; 
+        }, { passive: false });
+        
+        window.addEventListener('touchcancel', () => { 
+            joystickActive = false; joystickTouchId = null;
+            joystickCurrentX = joystickBaseMargin + joystickBaseSize / 2;
+            joystickCurrentY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
+            isMouseDown = false; isPlaceButtonPressed = false; 
+        });
+
+        // ================= 逻辑更新与渲染区 =================
+
         function update() {
             let targetVx = 0, targetVy = 0, isMoving = false;
             let kdx = 0, kdy = 0;
@@ -167,7 +370,17 @@
                 const dist = Math.hypot(dx, dy), maxDist = joystickBaseSize / 2;
                 const force = Math.min(dist / maxDist, 1);
                 if (dist > 5) { targetVx = (dx / dist) * maxSpeed * force; targetVy = (dy / dist) * maxSpeed * force; }
+            } else if (isMouseDown) {
+                isMoving = true;
+                const dx = mouseX - logicWidth / 2, dy = mouseY - logicHeight / 2;
+                const distance = Math.hypot(dx, dy);
+                if (distance > 10) { 
+                    const effectiveDist = Math.min(distance, maxRadius);
+                    const currentMaxSpeed = (effectiveDist / maxRadius) * maxSpeed;
+                    targetVx = (dx / distance) * currentMaxSpeed; targetVy = (dy / distance) * currentMaxSpeed;
+                }
             }
+
             if (isMoving) {
                 velocityX += (targetVx - velocityX) * accelerationSmooth;
                 velocityY += (targetVy - velocityY) * accelerationSmooth;
@@ -177,6 +390,9 @@
                 if (Math.abs(velocityY) < 0.05) velocityY = 0;
             }
             playerX += velocityX; playerY += velocityY;
+
+            const activeItems = getActiveItems();
+            if (selectedItemIndex >= activeItems.length) selectedItemIndex = Math.max(0, activeItems.length - 1);
         }
 
         function draw() {
@@ -238,7 +454,39 @@
                 ctx.fillStyle = '#000'; ctx.fillRect(pX + 10, pY + 10, 6, 10); ctx.fillRect(pX + 32, pY + 10, 6, 10);
             }
 
-            // 绘制摇杆和放置按钮 (仅限触摸模式)
+            // 物品栏
+            const activeItems = getActiveItems();
+            if (activeItems.length > 0) {
+                const totalWidth = activeItems.length * uiItemSize + (activeItems.length - 1) * uiGap;
+                const startX = (logicWidth - totalWidth) / 2, startY = logicHeight - uiItemSize - uiBottomMargin;
+                const targetX = startX + selectedItemIndex * (uiItemSize + uiGap);
+                if (electorVisualX === null) electorVisualX = targetX;
+                else {
+                    electorVisualX += (targetX - electorVisualX) * electorSlideSpeed;
+                    if (Math.abs(targetX - electorVisualX) < 0.1) electorVisualX = targetX;
+                }
+
+                for (let i = 0; i < activeItems.length; i++) {
+                    const item = activeItems[i], itemX = startX + i * (uiItemSize + uiGap), itemY = startY;
+                    if (item.img.complete && item.img.naturalHeight !== 0) ctx.drawImage(item.img, itemX, itemY, uiItemSize, uiItemSize);
+                    
+                    // 数字
+                    const str = item.count.toString(); let currentRightX = itemX + uiItemSize - 2;
+                    for (let j = str.length - 1; j >= 0; j--) {
+                        const d = digitImgs[str[j]];
+                        if (d && d.complete && d.naturalHeight !== 0) {
+                            const w = d.width * 1.5, h = d.height * 1.5;
+                            ctx.drawImage(d, currentRightX - w, itemY + 2, w, h);
+                            currentRightX -= (w + 1);
+                        }
+                    }
+                }
+                if (electorImg.complete && electorImg.naturalHeight !== 0) {
+                    ctx.drawImage(electorImg, Math.round(electorVisualX) - 2, startY - 2, uiItemSize + 4, uiItemSize + 4);
+                }
+            }
+
+            // 摇杆和按钮
             if (isTouchMode) {
                 const btnX = logicWidth - placeBtnSize - placeBtnMargin, btnY = logicHeight - placeBtnSize - placeBtnMargin;
                 const cPI = (isPlaceButtonPressed && pressedPlaceImg.complete) ? pressedPlaceImg : placeImg;
@@ -253,28 +501,14 @@
                 }
             }
 
-            // 🌟 核心：如果发现了错误，在屏幕左上角打印出来！
+            // 左上角 Debug
             if (errors.length > 0) {
-                ctx.fillStyle = 'rgba(0,0,0,0.7)';
-                ctx.fillRect(10, 10, 300, 30 + errors.length * 20);
-                ctx.fillStyle = '#ff4c4c'; 
-                ctx.font = 'bold 14px monospace';
-                ctx.textAlign = 'left';
+                ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(10, 10, 300, 30 + errors.length * 20);
+                ctx.fillStyle = '#ff4c4c'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'left';
                 ctx.fillText('❌ 缺失或路径错误的图片:', 15, 30);
-                for (let i = 0; i < errors.length; i++) {
-                    ctx.fillText('- ' + errors[i], 15, 50 + i * 20);
-                }
+                for (let i = 0; i < errors.length; i++) ctx.fillText('- ' + errors[i], 15, 50 + i * 20);
             }
         }
-
-        // 加上鼠标和触摸事件（为了篇幅省略，和你上一版一样）
-        canvas.addEventListener('mousedown', (e) => { 
-            if (e.button === 0) {
-                const { x, y } = getLogicCoords(e.clientX, e.clientY);
-                // ... 简单收集逻辑 ...
-            }
-        });
-        // ... 其他事件 ...
 
         function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
     </script>
