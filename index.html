@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>无限草地 - 拾荒物品栏版</title>
+    <title>Alpha 1.0</title>
     <style>
         body, html {
             margin: 0;
@@ -11,7 +11,7 @@
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background-color: #000; 
+            background-color: #3b7a3b; /* 纯绿背景兜底 */
             user-select: none;
             -webkit-user-select: none;
             -webkit-tap-highlight-color: transparent;
@@ -62,6 +62,11 @@
         const placeBtnMargin = 18;      
 
         const electorSlideSpeed = 0.2;
+
+        // 摇杆配置 (按 16x16 放大)
+        const joystickBaseSize = 128;   // 摇杆盘大小
+        const joystickBaseMargin = 30;  // 距离左下角边距
+        const joystickControlSize = 64; // 摇杆大小 (比盘小很多)
         // ==========================================
 
         const collectedGrassSet = new Set();
@@ -77,6 +82,15 @@
         let isPlaceButtonPressed = false;
         let electorVisualX = null;
 
+        // 🌟 双端模式状态
+        let isTouchMode = true; // 默认移动端模式 (显示摇杆)
+        
+        // 摇杆状态
+        let joystickActive = false;
+        let joystickTouchId = null;
+        let joystickCurrentX = 0;
+        let joystickCurrentY = 0;
+
         // 资源加载
         const bgImg = new Image();
         const playerImg = new Image(); 
@@ -90,6 +104,8 @@
         const electorImg = new Image(); 
         const placeImg = new Image(); 
         const pressedPlaceImg = new Image(); 
+        const joystickBaseImg = new Image(); // 🌟 摇杆盘
+        const joystickControlImg = new Image(); // 🌟 摇杆
         
         bgImg.src = './Game/picture/item/grass_land.png';
         
@@ -104,6 +120,8 @@
         electorImg.src = './Game/picture/ui/hotbar_elector.png';
         placeImg.src = './Game/picture/ui/place.png'; 
         pressedPlaceImg.src = './Game/picture/ui/pressed_place.png';
+        joystickBaseImg.src = './Game/picture/ui/joystick.png';
+        joystickControlImg.src = './Game/picture/ui/control_stick.png';
 
         const digitImgs = {};
         for (let i = 0; i <= 9; i++) {
@@ -117,6 +135,8 @@
         let logicWidth = window.innerWidth;
         let logicHeight = window.innerHeight;
         let isPortraitForced = false;
+        
+        // 🌟 必须全部图片加载完才开始
         let isGameStarted = false;
 
         let playerX = 0;
@@ -124,11 +144,6 @@
         let velocityX = 0;
         let velocityY = 0;
 
-        let isMouseDown = false;
-        let mouseX = 0;
-        let mouseY = 0;
-
-        // 键盘状态
         const keys = {
             w: false, a: false, s: false, d: false,
             arrowup: false, arrowleft: false, arrowdown: false, arrowright: false
@@ -139,6 +154,9 @@
             if (keys.hasOwnProperty(key)) {
                 keys[key] = true;
                 if(key.startsWith('arrow')) e.preventDefault();
+                
+                // 🌟 检测到键盘输入，立刻切换到 PC 模式，隐藏摇杆和按钮
+                isTouchMode = false; 
             }
         });
 
@@ -149,16 +167,13 @@
             }
         });
 
-        window.addEventListener('keydown', (e) => {
-            if (e.key === ' ' || e.key === 'Tab') {
-                e.preventDefault();
-            }
-        });
-
+        // 图片全部加载完成的计数
         let imagesLoaded = 0;
+        const totalImages = 13; // 数一下上面的 Image 对象数量
+
         function checkLoaded() {
             imagesLoaded++;
-            if (imagesLoaded >= 10 && !isGameStarted) {
+            if (imagesLoaded >= totalImages) {
                 if (bgImg.complete && bgImg.naturalHeight !== 0) {
                     bgW = bgTargetSize; bgH = bgTargetSize * (bgImg.height / bgImg.width);
                 }
@@ -178,7 +193,7 @@
         
         const allImages = [
             bgImg, playerImg, playerRightImg, playerLeftImg, playerUpImg, playerDownImg,
-            grassImg, pebbleImg, electorImg, placeImg, pressedPlaceImg
+            grassImg, pebbleImg, electorImg, placeImg, pressedPlaceImg, joystickBaseImg, joystickControlImg
         ];
         
         allImages.forEach(img => {
@@ -186,7 +201,8 @@
             img.onerror = checkLoaded; 
         });
 
-        setTimeout(startGame, 3000);
+        // 加个保险，防止卡死
+        setTimeout(startGame, 4000);
 
         function initScreen() {
             const dpr = window.devicePixelRatio || 1;
@@ -372,56 +388,69 @@
             tryPlace(x + camX, y + camY);
         });
 
+        // PC端鼠标点击
         canvas.addEventListener('mousedown', (e) => { 
             if (e.button === 0) {
                 const { x, y } = getLogicCoords(e.clientX, e.clientY);
                 
-                const btnX = logicWidth - placeBtnSize - placeBtnMargin;
-                const btnY = logicHeight - placeBtnSize - placeBtnMargin;
-                if (x >= btnX && x <= btnX + placeBtnSize && y >= btnY && y <= btnY + placeBtnSize) {
-                    isPlaceButtonPressed = true;
-                }
-
-                if (checkInventoryClick(x, y)) return;
+                // PC端不显示放置按钮，所以这里不需要检测右下角
                 if (tryCollect(x, y)) return;
 
+                // PC端拖拽作为备用移动方式
                 isMouseDown = true; 
                 mouseX = x; 
                 mouseY = y; 
             }
         });
         
-        // 🌟 重要修改：无论是否按住鼠标，都要实时更新鼠标位置，用于控制方向
         window.addEventListener('mousemove', (e) => { 
-            const { x, y } = getLogicCoords(e.clientX, e.clientY);
-            mouseX = x; 
-            mouseY = y; 
+            if (isMouseDown) { 
+                const { x, y } = getLogicCoords(e.clientX, e.clientY);
+                mouseX = x; 
+                mouseY = y; 
+            } 
         });
         
         window.addEventListener('mouseup', (e) => { 
             if (e.button === 0) {
                 isMouseDown = false; 
-                isPlaceButtonPressed = false; 
             }
         });
 
+        // 🌟 移动端触摸摇杆逻辑
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
-            if (e.touches.length > 0) {
-                const touch = e.touches[0];
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const touch = e.changedTouches[i];
                 const { x, y } = getLogicCoords(touch.clientX, touch.clientY);
                 
+                // 计算摇杆盘中心点坐标
+                const baseCenterX = joystickBaseMargin + joystickBaseSize / 2;
+                const baseCenterY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
+
+                // 判断是否点击了摇杆区域 (扩大一点判定范围)
+                const distToBase = Math.hypot(x - baseCenterX, y - baseCenterY);
+                if (distToBase < joystickBaseSize) {
+                    joystickActive = true;
+                    joystickTouchId = touch.identifier;
+                    joystickCurrentX = x;
+                    joystickCurrentY = y;
+                    continue; // 交给摇杆处理，不触发其他点击
+                }
+
+                // 检测放置按钮
                 const btnX = logicWidth - placeBtnSize - placeBtnMargin;
                 const btnY = logicHeight - placeBtnSize - placeBtnMargin;
                 if (x >= btnX && x <= btnX + placeBtnSize && y >= btnY && y <= btnY + placeBtnSize) {
                     isPlaceButtonPressed = true; 
                     tryPlace(playerX, playerY);
-                    return; 
+                    continue;
                 }
 
-                if (checkInventoryClick(x, y)) return;
-                if (tryCollect(x, y)) return;
+                if (checkInventoryClick(x, y)) continue;
+                if (tryCollect(x, y)) continue;
 
+                // 如果没有点到摇杆、按钮、物品，则作为拖拽移动的备用
                 isMouseDown = true;
                 mouseX = x;
                 mouseY = y;
@@ -430,21 +459,56 @@
         
         window.addEventListener('touchmove', (e) => {
             e.preventDefault();
-            if (isMouseDown && e.touches.length > 0) {
-                const touch = e.touches[0];
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const touch = e.changedTouches[i];
                 const { x, y } = getLogicCoords(touch.clientX, touch.clientY);
-                mouseX = x;
-                mouseY = y;
+
+                if (joystickActive && touch.identifier === joystickTouchId) {
+                    // 限制摇杆在盘内滑动
+                    const baseCenterX = joystickBaseMargin + joystickBaseSize / 2;
+                    const baseCenterY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
+                    
+                    let dx = x - baseCenterX;
+                    let dy = y - baseCenterY;
+                    const dist = Math.hypot(dx, dy);
+                    const maxDist = joystickBaseSize / 2; // 摇杆最多能拉到盘边缘
+
+                    if (dist > maxDist) {
+                        dx = (dx / dist) * maxDist;
+                        dy = (dy / dist) * maxDist;
+                    }
+                    
+                    // 记录摇杆当前视觉位置
+                    joystickCurrentX = baseCenterX + dx;
+                    joystickCurrentY = baseCenterY + dy;
+                } else if (isMouseDown) {
+                    mouseX = x;
+                    mouseY = y;
+                }
             }
         }, { passive: false });
         
         window.addEventListener('touchend', (e) => { 
             e.preventDefault(); 
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const touch = e.changedTouches[i];
+                if (touch.identifier === joystickTouchId) {
+                    joystickActive = false;
+                    joystickTouchId = null;
+                    // 摇杆复位
+                    joystickCurrentX = joystickBaseMargin + joystickBaseSize / 2;
+                    joystickCurrentY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
+                }
+            }
             isMouseDown = false; 
             isPlaceButtonPressed = false; 
         }, { passive: false });
         
         window.addEventListener('touchcancel', () => { 
+            joystickActive = false;
+            joystickTouchId = null;
+            joystickCurrentX = joystickBaseMargin + joystickBaseSize / 2;
+            joystickCurrentY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
             isMouseDown = false; 
             isPlaceButtonPressed = false; 
         });
@@ -454,25 +518,40 @@
             let targetVy = 0;
             let isMoving = false;
 
-            // 🌟 1. 判断是否按下了移动键 (WASD 或 方向键)
-            const keyPressed = keys.w || keys.a || keys.s || keys.d || keys.arrowup || keys.arrowleft || keys.arrowdown || keys.arrowright;
+            // 1. 如果按了键盘 (PC模式)
+            let kdx = 0, kdy = 0;
+            if (keys.w || keys.arrowup) kdy -= 1;
+            if (keys.s || keys.arrowdown) kdy += 1;
+            if (keys.a || keys.arrowleft) kdx -= 1;
+            if (keys.d || keys.arrowright) kdx += 1;
 
-            if (keyPressed) {
-                // 按下了移动键，朝鼠标位置移动
+            if (kdx !== 0 || kdy !== 0) {
                 isMoving = true;
-                const centerX = logicWidth / 2;
-                const centerY = logicHeight / 2;
-                const dx = mouseX - centerX;
-                const dy = mouseY - centerY;
-                const distance = Math.hypot(dx, dy);
+                const length = Math.hypot(kdx, kdy);
+                targetVx = (kdx / length) * maxSpeed;
+                targetVy = (kdy / length) * maxSpeed;
+            } 
+            // 2. 如果摇杆激活 (移动端模式)
+            else if (joystickActive) {
+                isMoving = true;
+                const baseCenterX = joystickBaseMargin + joystickBaseSize / 2;
+                const baseCenterY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
+                
+                const dx = joystickCurrentX - baseCenterX;
+                const dy = joystickCurrentY - baseCenterY;
+                const dist = Math.hypot(dx, dy);
+                const maxDist = joystickBaseSize / 2;
 
-                // 加一个很小的死区，防止鼠标正好在正中心时人物原地鬼畜
-                if (distance > 5) { 
-                    targetVx = (dx / distance) * maxSpeed;
-                    targetVy = (dy / distance) * maxSpeed;
+                // 力度 (0 到 1)
+                const force = Math.min(dist / maxDist, 1);
+                
+                if (dist > 5) {
+                    targetVx = (dx / dist) * maxSpeed * force;
+                    targetVy = (dy / dist) * maxSpeed * force;
                 }
-            } else if (isMouseDown) {
-                // 🌟 2. 鼠标/触摸拖拽逻辑（未按键盘时）
+            }
+            // 3. 鼠标拖拽 (备用)
+            else if (isMouseDown) {
                 isMoving = true;
                 const centerX = logicWidth / 2;
                 const centerY = logicHeight / 2;
@@ -488,7 +567,6 @@
                 }
             }
 
-            // 🌟 3. 应用物理速度
             if (isMoving) {
                 velocityX += (targetVx - velocityX) * accelerationSmooth;
                 velocityY += (targetVy - velocityY) * accelerationSmooth;
@@ -511,11 +589,17 @@
         function draw() {
             ctx.imageSmoothingEnabled = false;
             
-            if (!bgImg.complete || bgImg.naturalHeight === 0) {
-                ctx.fillStyle = '#3b7a3b'; 
-                ctx.fillRect(0, 0, logicWidth, logicHeight);
-            } else {
-                ctx.clearRect(0, 0, logicWidth, logicHeight);
+            // 🌟 兜底绿色背景
+            ctx.fillStyle = '#3b7a3b'; 
+            ctx.fillRect(0, 0, logicWidth, logicHeight);
+
+            if (!isGameStarted) {
+                // 加载中，画个提示
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 24px "Courier New", Courier, monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('Loading...', logicWidth/2, logicHeight/2);
+                return; // 如果没加载完，不画后面的东西
             }
 
             const camX = Math.round(playerX - logicWidth / 2);
@@ -573,14 +657,12 @@
             const playerScreenX = Math.round(logicWidth / 2 - playerW / 2);
             const playerScreenY = Math.round(logicHeight / 2 - playerH / 2);
             
-            // 🌟 4. 人物图像方向完全由“当前速度”决定，与鼠标位置无关！
             if (playerImg.complete && playerImg.naturalHeight !== 0) {
                 let currentPlayerImg = playerImg; 
                 
                 const speed = Math.hypot(velocityX, velocityY);
                 
                 if (speed > 0.2) {
-                    // 根据实际移动的物理速度判断朝向
                     if (Math.abs(velocityY) > Math.abs(velocityX)) {
                         currentPlayerImg = velocityY > 0 ? playerDownImg : playerUpImg;
                     } else {
@@ -603,15 +685,33 @@
 
             drawInventoryUI();
 
-            const btnX = logicWidth - placeBtnSize - placeBtnMargin;
-            const btnY = logicHeight - placeBtnSize - placeBtnMargin;
-            
-            const currentPlaceImg = (isPlaceButtonPressed && pressedPlaceImg.complete && pressedPlaceImg.naturalHeight !== 0) 
-                                    ? pressedPlaceImg 
-                                    : placeImg;
+            // 🌟 移动端专属 UI (摇杆 + 放置按钮)
+            if (isTouchMode) {
+                // 绘制放置按钮
+                const btnX = logicWidth - placeBtnSize - placeBtnMargin;
+                const btnY = logicHeight - placeBtnSize - placeBtnMargin;
+                
+                const currentPlaceImg = (isPlaceButtonPressed && pressedPlaceImg.complete && pressedPlaceImg.naturalHeight !== 0) 
+                                        ? pressedPlaceImg 
+                                        : placeImg;
 
-            if (currentPlaceImg.complete && currentPlaceImg.naturalHeight !== 0) {
-                ctx.drawImage(currentPlaceImg, btnX, btnY, placeBtnSize, placeBtnSize);
+                if (currentPlaceImg.complete && currentPlaceImg.naturalHeight !== 0) {
+                    ctx.drawImage(currentPlaceImg, btnX, btnY, placeBtnSize, placeBtnSize);
+                }
+
+                // 绘制摇杆盘
+                const baseCenterX = joystickBaseMargin + joystickBaseSize / 2;
+                const baseCenterY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
+                if (joystickBaseImg.complete && joystickBaseImg.naturalHeight !== 0) {
+                    ctx.globalAlpha = 0.6; // 摇杆盘半透明
+                    ctx.drawImage(joystickBaseImg, baseCenterX - joystickBaseSize/2, baseCenterY - joystickBaseSize/2, joystickBaseSize, joystickBaseSize);
+                    ctx.globalAlpha = 1.0;
+                }
+
+                // 绘制摇杆头
+                if (joystickControlImg.complete && joystickControlImg.naturalHeight !== 0) {
+                    ctx.drawImage(joystickControlImg, joystickCurrentX - joystickControlSize/2, joystickCurrentY - joystickControlSize/2, joystickControlSize, joystickControlSize);
+                }
             }
         }
 
