@@ -25,6 +25,7 @@
             position: absolute;
             top: 0;
             left: 0;
+            outline: none; /* 防止点击时出现边框 */
         }
         canvas:active {
             cursor: grabbing;
@@ -33,7 +34,7 @@
 </head>
 <body>
 
-    <canvas id="gameCanvas"></canvas>
+    <canvas id="gameCanvas" tabindex="0"></canvas>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
@@ -127,24 +128,33 @@
         let mouseX = 0;
         let mouseY = 0;
 
-        // 🌟 键盘状态记录
+        // 🌟 键盘状态记录（全部转为小写）
         const keys = {
             w: false, a: false, s: false, d: false,
-            ArrowUp: false, ArrowLeft: false, ArrowDown: false, ArrowRight: false
+            arrowup: false, arrowleft: false, arrowdown: false, arrowright: false
         };
 
-        // 键盘事件监听
+        // 🌟 升级版键盘监听，兼容大小写
         window.addEventListener('keydown', (e) => {
-            if (keys.hasOwnProperty(e.key)) {
-                keys[e.key] = true;
-                // 防止按方向键时页面滚动
-                if(e.key.startsWith('Arrow')) e.preventDefault();
+            const key = e.key.toLowerCase();
+            if (keys.hasOwnProperty(key)) {
+                keys[key] = true;
+                // 防止方向键滚动网页
+                if(key.startsWith('arrow')) e.preventDefault();
             }
         });
 
         window.addEventListener('keyup', (e) => {
-            if (keys.hasOwnProperty(e.key)) {
-                keys[e.key] = false;
+            const key = e.key.toLowerCase();
+            if (keys.hasOwnProperty(key)) {
+                keys[key] = false;
+            }
+        });
+
+        // 防止用户在网页上按空格或者Tab导致焦点丢失
+        window.addEventListener('keydown', (e) => {
+            if (e.key === ' ' || e.key === 'Tab') {
+                e.preventDefault();
             }
         });
 
@@ -448,12 +458,12 @@
             let targetVx = 0;
             let targetVy = 0;
 
-            // 🌟 1. 键盘控制检测
+            // 🌟 键盘控制检测（全部用小写）
             let kdx = 0, kdy = 0;
-            if (keys.w || keys.ArrowUp) kdy -= 1;
-            if (keys.s || keys.ArrowDown) kdy += 1;
-            if (keys.a || keys.ArrowLeft) kdx -= 1;
-            if (keys.d || keys.ArrowRight) kdx += 1;
+            if (keys.w || keys.arrowup) kdy -= 1;
+            if (keys.s || keys.arrowdown) kdy += 1;
+            if (keys.a || keys.arrowleft) kdx -= 1;
+            if (keys.d || keys.arrowright) kdx += 1;
 
             if (kdx !== 0 || kdy !== 0) {
                 isKeyboardMoving = true;
@@ -465,7 +475,7 @@
                 targetVy = kdy * maxSpeed;
             }
 
-            // 🌟 2. 应用物理逻辑
+            // 应用物理逻辑
             if (isKeyboardMoving) {
                 // 键盘平滑移动
                 velocityX += (targetVx - velocityX) * accelerationSmooth;
