@@ -6,90 +6,41 @@
     <title>Alpha 1.0 - Debug Mode</title>
     <style>
         body, html {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            background-color: #3b7a3b;
-            user-select: none;
-            -webkit-user-select: none;
-            -webkit-tap-highlight-color: transparent;
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background-color: #3b7a3b; user-select: none;
         }
         canvas {
-            display: block;
-            image-rendering: pixelated;
-            image-rendering: crisp-edges;
-            touch-action: none; 
-            cursor: grab;
-            position: absolute;
-            top: 0;
-            left: 0;
-            outline: none;
-        }
-        canvas:active {
-            cursor: grabbing;
+            display: block; image-rendering: pixelated; image-rendering: crisp-edges;
+            touch-action: none; cursor: grab; position: absolute; top: 0; left: 0; outline: none;
         }
     </style>
 </head>
 <body>
-
     <canvas id="gameCanvas" tabindex="0"></canvas>
-
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
 
-        const bgTargetSize = 80;        
-        const playerTargetSize = 48;    
-        const itemTargetSize = 64;      
-        const grassChance = 0.025;       
-        const pebbleChance = 0.025;      
-        const maxSpeed = 5.5;          
-        const maxRadius = 250;         
-        const accelerationSmooth = 0.15; 
-        const friction = 0.94;           
-        
-        const uiItemSize = 38;          
-        const uiGap = 9;                
-        const uiBottomMargin = 12;      
-        const placeBtnSize = 38;        
-        const placeBtnMargin = 18;      
-        const electorSlideSpeed = 0.2;
-        const joystickBaseSize = 128;   
-        const joystickBaseMargin = 30;  
-        const joystickControlSize = 64; 
+        const bgTargetSize = 80, playerTargetSize = 48, itemTargetSize = 64;
+        const grassChance = 0.025, pebbleChance = 0.025;
+        const maxSpeed = 5.5, maxRadius = 250, accelerationSmooth = 0.15, friction = 0.94;
+        const uiItemSize = 38, uiGap = 9, uiBottomMargin = 12, placeBtnSize = 38, placeBtnMargin = 18;
+        const electorSlideSpeed = 0.2, joystickBaseSize = 128, joystickBaseMargin = 30, joystickControlSize = 64;
 
-        const collectedGrassSet = new Set();
-        const collectedPebbleSet = new Set();
-        const placedItems = new Map();
-        
+        const collectedGrassSet = new Set(), collectedPebbleSet = new Set(), placedItems = new Map();
         const inventory = { grass: 0, pebble: 0 };
-
-        let selectedItemIndex = 0;
-        let isPlaceButtonPressed = false;
-        let electorVisualX = null;
-        let isTouchMode = true; 
-        let joystickActive = false;
-        let joystickTouchId = null;
-        let joystickCurrentX = 0;
-        let joystickCurrentY = 0;
+        let selectedItemIndex = 0, isPlaceButtonPressed = false, electorVisualX = null;
+        let isTouchMode = true, joystickActive = false, joystickTouchId = null;
+        let joystickCurrentX = 0, joystickCurrentY = 0;
 
         // 资源加载
-        const bgImg = new Image();
-        const playerImg = new Image(); 
-        const playerRightImg = new Image();
-        const playerLeftImg = new Image();
-        const playerUpImg = new Image();
-        const playerDownImg = new Image();
-        const grassImg = new Image();
-        const pebbleImg = new Image();
-        const electorImg = new Image(); 
-        const placeImg = new Image(); 
-        const pressedPlaceImg = new Image(); 
-        const joystickBaseImg = new Image(); 
-        const joystickControlImg = new Image(); 
+        const bgImg = new Image(), playerImg = new Image(), playerRightImg = new Image();
+        const playerLeftImg = new Image(), playerUpImg = new Image(), playerDownImg = new Image();
+        const grassImg = new Image(), pebbleImg = new Image(), electorImg = new Image();
+        const placeImg = new Image(), pressedPlaceImg = new Image();
+        const joystickBaseImg = new Image(), joystickControlImg = new Image();
         
+        // 如果路径错了，这里会 404
         bgImg.src = './Game/picture/item/grass_land.png';
         playerImg.src = './Game/picture/mob/player.png';
         playerRightImg.src = './Game/picture/mob/player_right.png';
@@ -110,32 +61,22 @@
             digitImgs[i].src = `./Game/picture/text/${i}.png`;
         }
 
-        let bgW = bgTargetSize, bgH = bgTargetSize;
-        let playerW = playerTargetSize, playerH = playerTargetSize;
-        let logicWidth = window.innerWidth;
-        let logicHeight = window.innerHeight;
-        let isPortraitForced = false;
-        let isGameStarted = false;
-
-        let playerX = 0;
-        let playerY = 0;
-        let velocityX = 0;
-        let velocityY = 0;
-
-        // 🌟 核心 Debug 数组，记录报错的图片
-        let loadErrors = []; 
+        let bgW = bgTargetSize, bgH = bgTargetSize, playerW = playerTargetSize, playerH = playerTargetSize;
+        let logicWidth = window.innerWidth, logicHeight = window.innerHeight;
+        let isPortraitForced = false, isGameStarted = false;
+        let playerX = 0, playerY = 0, velocityX = 0, velocityY = 0;
+        
+        let errors = []; // 收集报错的图片路径
 
         const keys = { w: false, a: false, s: false, d: false, arrowup: false, arrowleft: false, arrowdown: false, arrowright: false };
-
         window.addEventListener('keydown', (e) => {
             const key = e.key.toLowerCase();
             if (keys.hasOwnProperty(key)) {
                 keys[key] = true;
-                if(key.startsWith('arrow')) e.preventDefault();
+                if (key.startsWith('arrow')) e.preventDefault();
                 isTouchMode = false; 
             }
         });
-
         window.addEventListener('keyup', (e) => {
             const key = e.key.toLowerCase();
             if (keys.hasOwnProperty(key)) keys[key] = false;
@@ -152,20 +93,14 @@
 
         function checkLoaded() {
             imagesLoaded++;
-            if (imagesLoaded >= totalImages) {
-                startGame();
-            }
+            if (imagesLoaded >= totalImages) startGame();
         }
 
         function startGame() {
             if (isGameStarted) return;
             isGameStarted = true;
-            if (bgImg.complete && bgImg.naturalHeight !== 0) {
-                bgW = bgTargetSize; bgH = bgTargetSize * (bgImg.height / bgImg.width);
-            }
-            if (playerImg.complete && playerImg.naturalHeight !== 0) {
-                playerW = playerTargetSize; playerH = playerTargetSize * (playerImg.height / playerImg.width);
-            }
+            if (bgImg.complete && bgImg.naturalHeight !== 0) { bgW = bgTargetSize; bgH = bgTargetSize * (bgImg.height / bgImg.width); }
+            if (playerImg.complete && playerImg.naturalHeight !== 0) { playerW = playerTargetSize; playerH = playerTargetSize * (playerImg.height / playerImg.width); }
             initScreen(); 
             gameLoop();
         }
@@ -173,40 +108,29 @@
         allImages.forEach(img => {
             img.onload = checkLoaded;
             img.onerror = function() {
-                // 🌟 把报错的路径存起来，方便画在屏幕上
-                loadErrors.push(this.src);
+                errors.push(this.src.split('/').pop()); // 记录失败的图片名字
                 checkLoaded(); 
             };
             if (img.complete) checkLoaded();
         });
 
-        setTimeout(startGame, 4000);
+        setTimeout(startGame, 3000);
         initScreen();
 
         function initScreen() {
             const dpr = window.devicePixelRatio || 1;
-            const w = window.innerWidth;
-            const h = window.innerHeight;
-
+            const w = window.innerWidth, h = window.innerHeight;
             if (h > w) {
-                isPortraitForced = true;
-                logicWidth = h;
-                logicHeight = w;
-                canvas.width = logicWidth * dpr;
-                canvas.height = logicHeight * dpr;
-                canvas.style.width = logicWidth + "px";
-                canvas.style.height = logicHeight + "px";
+                isPortraitForced = true; logicWidth = h; logicHeight = w;
+                canvas.width = logicWidth * dpr; canvas.height = logicHeight * dpr;
+                canvas.style.width = logicWidth + "px"; canvas.style.height = logicHeight + "px";
                 canvas.style.transformOrigin = "top left";
                 canvas.style.transform = `translateX(${w}px) rotate(90deg)`;
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             } else {
-                isPortraitForced = false;
-                logicWidth = w;
-                logicHeight = h;
-                canvas.width = logicWidth * dpr;
-                canvas.height = logicHeight * dpr;
-                canvas.style.width = logicWidth + "px";
-                canvas.style.height = logicHeight + "px";
+                isPortraitForced = false; logicWidth = w; logicHeight = h;
+                canvas.width = logicWidth * dpr; canvas.height = logicHeight * dpr;
+                canvas.style.width = logicWidth + "px"; canvas.style.height = logicHeight + "px";
                 canvas.style.transform = "none";
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             }
@@ -225,18 +149,7 @@
             return ((n ^ (n >> 16)) >>> 0) / 4294967296;
         }
 
-        function getActiveItems() {
-            const items = [];
-            if (inventory.grass > 0) items.push({ type: 'grass', img: grassImg, count: inventory.grass });
-            if (inventory.pebble > 0) items.push({ type: 'pebble', img: pebbleImg, count: inventory.pebble });
-            return items;
-        }
-
-        // 其余所有的点击、移动、更新逻辑保持不变，为节省篇幅省略中间相同的几百行...
-        // 直接进入 Draw 函数
-        
         function update() {
-            // 省略代码，与原版相同
             let targetVx = 0, targetVy = 0, isMoving = false;
             let kdx = 0, kdy = 0;
             if (keys.w || keys.arrowup) kdy -= 1;
@@ -245,21 +158,15 @@
             if (keys.d || keys.arrowright) kdx += 1;
 
             if (kdx !== 0 || kdy !== 0) {
-                isMoving = true;
-                const length = Math.hypot(kdx, kdy);
+                isMoving = true; const length = Math.hypot(kdx, kdy);
                 targetVx = (kdx / length) * maxSpeed; targetVy = (kdy / length) * maxSpeed;
             } else if (joystickActive) {
-                isMoving = true;
-                const baseCenterX = joystickBaseMargin + joystickBaseSize / 2;
-                const baseCenterY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
-                const dx = joystickCurrentX - baseCenterX;
-                const dy = joystickCurrentY - baseCenterY;
-                const dist = Math.hypot(dx, dy);
-                const maxDist = joystickBaseSize / 2;
+                isMoving = true; const bX = joystickBaseMargin + joystickBaseSize / 2;
+                const bY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
+                const dx = joystickCurrentX - bX, dy = joystickCurrentY - bY;
+                const dist = Math.hypot(dx, dy), maxDist = joystickBaseSize / 2;
                 const force = Math.min(dist / maxDist, 1);
-                if (dist > 5) {
-                    targetVx = (dx / dist) * maxSpeed * force; targetVy = (dy / dist) * maxSpeed * force;
-                }
+                if (dist > 5) { targetVx = (dx / dist) * maxSpeed * force; targetVy = (dy / dist) * maxSpeed * force; }
             }
             if (isMoving) {
                 velocityX += (targetVx - velocityX) * accelerationSmooth;
@@ -274,68 +181,102 @@
 
         function draw() {
             ctx.imageSmoothingEnabled = false;
-            ctx.fillStyle = '#3b7a3b'; 
-            ctx.fillRect(0, 0, logicWidth, logicHeight);
-
-            // 🌟 核心修复：如果发现有图片 404，直接把错误打印在屏幕正中央！
-            if (loadErrors.length > 0) {
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-                ctx.fillRect(logicWidth/2 - 250, logicHeight/2 - 150, 500, 300);
-                ctx.fillStyle = '#ff0000';
-                ctx.font = 'bold 20px "Courier New", Courier, monospace';
-                ctx.textAlign = 'center';
-                ctx.fillText('❌ 图片加载失败，请检查以下文件路径：', logicWidth/2, logicHeight/2 - 100);
-                
-                ctx.fillStyle = '#ffffff';
-                ctx.font = '14px "Courier New", Courier, monospace';
-                // 只显示前几个错误，防止屏幕写不下
-                for (let i = 0; i < Math.min(loadErrors.length, 8); i++) {
-                    ctx.fillText(loadErrors[i], logicWidth/2, logicHeight/2 - 50 + (i * 25));
-                }
-                if (loadErrors.length > 8) {
-                    ctx.fillText("...等 " + loadErrors.length + " 个错误", logicWidth/2, logicHeight/2 + 150);
-                }
-                return; // 有错就不渲染游戏了，直接卡在这里给你看
-            }
+            ctx.fillStyle = '#3b7a3b'; ctx.fillRect(0, 0, logicWidth, logicHeight);
 
             if (!isGameStarted) {
-                ctx.fillStyle = '#ffffff';
-                ctx.font = 'bold 24px "Courier New", Courier, monospace';
-                ctx.textAlign = 'center';
-                ctx.fillText('Loading...', logicWidth/2, logicHeight/2);
-                return; 
+                ctx.fillStyle = '#fff'; ctx.font = 'bold 24px monospace';
+                ctx.textAlign = 'center'; ctx.fillText('Loading...', logicWidth/2, logicHeight/2);
+                return;
             }
 
-            // 如果没有任何错误，继续正常渲染 (这里省略了绘制地图的几百行，假设正常)
-            // ...（这里的渲染代码与你刚才那一版完全相同）...
-            
-            // 为了确保能测试，我直接把游戏背景和人物画出来
-            const camX = Math.round(playerX - logicWidth / 2);
-            const camY = Math.round(playerY - logicHeight / 2);
+            const camX = Math.round(playerX - logicWidth / 2), camY = Math.round(playerY - logicHeight / 2);
+
             if (bgImg.complete && bgImg.naturalHeight !== 0) {
-                const startX = Math.floor(camX / bgW) * bgW;
-                const startY = Math.floor(camY / bgH) * bgH;
+                const startX = Math.floor(camX / bgW) * bgW, startY = Math.floor(camY / bgH) * bgH;
                 for (let x = startX; x <= camX + logicWidth; x += bgW) {
                     for (let y = startY; y <= camY + logicHeight; y += bgH) {
                         ctx.drawImage(bgImg, x - camX, y - camY, bgW, bgH);
                     }
                 }
             }
-            
-            const playerScreenX = Math.round(logicWidth / 2 - playerW / 2);
-            const playerScreenY = Math.round(logicHeight / 2 - playerH / 2);
-            if (playerImg.complete && playerImg.naturalHeight !== 0) {
-                ctx.drawImage(playerImg, playerScreenX, playerScreenY, playerW, playerH);
+
+            const startCellX = Math.floor(camX / bgW) - 1, endCellX = Math.floor((camX + logicWidth) / bgW) + 1;
+            const startCellY = Math.floor(camY / bgH) - 1, endCellY = Math.floor((camY + logicHeight) / bgH) + 1;
+
+            for (let cx = startCellX; cx <= endCellX; cx++) {
+                for (let cy = startCellY; cy <= endCellY; cy++) {
+                    const worldX = cx * bgW + bgW / 2, worldY = cy * bgH + bgH / 2;
+                    const itemRand = hash(cx, cy, 1), screenX = worldX - camX, screenY = worldY - camY;
+                    const key = `${worldX},${worldY}`;
+
+                    if (placedItems.has(key)) {
+                        const type = placedItems.get(key), img = type === 'grass' ? grassImg : pebbleImg;
+                        if (img.complete && img.naturalHeight !== 0) ctx.drawImage(img, screenX - itemTargetSize / 2, screenY - itemTargetSize / 2, itemTargetSize, itemTargetSize);
+                    } else if (itemRand < grassChance) {
+                        if (!collectedGrassSet.has(key) && grassImg.complete && grassImg.naturalHeight !== 0) {
+                            ctx.drawImage(grassImg, screenX - itemTargetSize / 2, screenY - itemTargetSize / 2, itemTargetSize, itemTargetSize);
+                        }
+                    } else if (itemRand >= grassChance && itemRand < grassChance + pebbleChance) {
+                        if (!collectedPebbleSet.has(key) && pebbleImg.complete && pebbleImg.naturalHeight !== 0) {
+                            ctx.drawImage(pebbleImg, screenX - itemTargetSize / 2, screenY - itemTargetSize / 2, itemTargetSize, itemTargetSize);
+                        }
+                    }
+                }
             }
-            
-            // 其余UI渲染...
+
+            const pX = Math.round(logicWidth / 2 - playerW / 2), pY = Math.round(logicHeight / 2 - playerH / 2);
+            if (playerImg.complete && playerImg.naturalHeight !== 0) {
+                let cImg = playerImg; const speed = Math.hypot(velocityX, velocityY);
+                if (speed > 0.2) {
+                    if (Math.abs(velocityY) > Math.abs(velocityX)) cImg = velocityY > 0 ? playerDownImg : playerUpImg;
+                    else cImg = velocityX > 0 ? playerRightImg : playerLeftImg;
+                }
+                if (!cImg || !cImg.complete || cImg.naturalHeight === 0) cImg = playerImg;
+                ctx.drawImage(cImg, pX, pY, playerW, playerH);
+            } else {
+                ctx.fillStyle = '#3498db'; ctx.fillRect(pX, pY, playerW, playerH);
+                ctx.fillStyle = '#000'; ctx.fillRect(pX + 10, pY + 10, 6, 10); ctx.fillRect(pX + 32, pY + 10, 6, 10);
+            }
+
+            // 绘制摇杆和放置按钮 (仅限触摸模式)
+            if (isTouchMode) {
+                const btnX = logicWidth - placeBtnSize - placeBtnMargin, btnY = logicHeight - placeBtnSize - placeBtnMargin;
+                const cPI = (isPlaceButtonPressed && pressedPlaceImg.complete) ? pressedPlaceImg : placeImg;
+                if (cPI.complete && cPI.naturalHeight !== 0) ctx.drawImage(cPI, btnX, btnY, placeBtnSize, placeBtnSize);
+
+                const bCX = joystickBaseMargin + joystickBaseSize / 2, bCY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
+                if (joystickBaseImg.complete && joystickBaseImg.naturalHeight !== 0) {
+                    ctx.globalAlpha = 0.6; ctx.drawImage(joystickBaseImg, bCX - joystickBaseSize/2, bCY - joystickBaseSize/2, joystickBaseSize, joystickBaseSize); ctx.globalAlpha = 1.0;
+                }
+                if (joystickControlImg.complete && joystickControlImg.naturalHeight !== 0) {
+                    ctx.drawImage(joystickControlImg, joystickCurrentX - joystickControlSize/2, joystickCurrentY - joystickControlSize/2, joystickControlSize, joystickControlSize);
+                }
+            }
+
+            // 🌟 核心：如果发现了错误，在屏幕左上角打印出来！
+            if (errors.length > 0) {
+                ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                ctx.fillRect(10, 10, 300, 30 + errors.length * 20);
+                ctx.fillStyle = '#ff4c4c'; 
+                ctx.font = 'bold 14px monospace';
+                ctx.textAlign = 'left';
+                ctx.fillText('❌ 缺失或路径错误的图片:', 15, 30);
+                for (let i = 0; i < errors.length; i++) {
+                    ctx.fillText('- ' + errors[i], 15, 50 + i * 20);
+                }
+            }
         }
 
-        function gameLoop() {
-            update();
-            draw();
-            requestAnimationFrame(gameLoop);
-        }
+        // 加上鼠标和触摸事件（为了篇幅省略，和你上一版一样）
+        canvas.addEventListener('mousedown', (e) => { 
+            if (e.button === 0) {
+                const { x, y } = getLogicCoords(e.clientX, e.clientY);
+                // ... 简单收集逻辑 ...
+            }
+        });
+        // ... 其他事件 ...
+
+        function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
     </script>
 </body>
 </html>
