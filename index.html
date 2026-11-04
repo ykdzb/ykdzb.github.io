@@ -458,42 +458,51 @@
 
             renderList = [];
             
-            // 🌟 核心修复：向下多扫描 10 格。这样哪怕是最高的树的顶端叶子，只要刚露头就会被扫进渲染列表
+            // 向下多扫 12 格，确保树根在屏幕下方时，顶部的树冠依然能被渲染
             const startCellX = Math.floor(camX / bgW) - 5, endCellX = Math.floor((camX + logicWidth) / bgW) + 5;
-            const startCellY = Math.floor(camY / bgH) - 10, endCellY = Math.floor((camY + logicHeight) / bgH) + 10;
+            const startCellY = Math.floor(camY / bgH) - 12, endCellY = Math.floor((camY + logicHeight) / bgH) + 12;
 
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
                     
-                    // 🌟 拆散渲染：树墩、树干、树叶各自独立计算 Y 坐标放入渲染列表
                     if (isTreeCenter(cx, cy)) {
-                        let trunkHeight = Math.floor(hash(cx, cy, 100) * 3) + 3; // 3 到 5 个树干
+                        let trunkHeight = Math.floor(hash(cx, cy, 100) * 3) + 3; // 3-5格
                         let topY = cy - trunkHeight;
-
-                        // 树墩
-                        renderList.push({ 
-                            y: cy * bgH + bgH / 2, 
-                            x: cx * bgW + bgW / 2, 
-                            img: treeStumpImg, size: bgW 
-                        });
+                        let worldX = cx * bgW + bgW / 2;
                         
-                        // 树干
-                        for (let i = 1; i <= trunkHeight; i++) {
-                            renderList.push({ 
-                                y: (cy - i) * bgH + bgH / 2, 
-                                x: cx * bgW + bgW / 2, 
-                                img: treeTrunkImg, size: bgW 
-                            });
-                        }
+                        // 🌟 核心修复：让整棵树作为一个整体参与 Y 排序。
+                        // 基准点定为树根格子的最底边。
+                        let sortY = cy * bgH + bgH;
 
-                        // 树叶
-                        let leafS = bgW * leafSizeMultiplier;
-                        for (let dx = -2; dx <= 2; dx++) renderList.push({ y: (topY - 1) * bgH + bgH / 2, x: (cx + dx) * bgW + bgW / 2, img: leafImg, size: leafS });
-                        for (let dx = -2; dx <= 2; dx++) renderList.push({ y: (topY - 2) * bgH + bgH / 2, x: (cx + dx) * bgW + bgW / 2, img: leafImg, size: leafS });
-                        for (let dx = -1; dx <= 1; dx++) renderList.push({ y: (topY - 3) * bgH + bgH / 2, x: (cx + dx) * bgW + bgW / 2, img: leafImg, size: leafS });
+                        // 绘制过程：先画树干，再画树叶。这样树叶绝对会盖住树干。
+                        renderList.push({ 
+                            type: 'tree', 
+                            y: sortY, 
+                            draw: () => {
+                                // 1. 树墩
+                                ctx.drawImage(treeStumpImg, worldX - bgW / 2 - camX, cy * bgH + bgH / 2 - bgW / 2 - camY, bgW, bgW);
+                                // 2. 树干 (从下往上画)
+                                for (let i = 1; i <= trunkHeight; i++) {
+                                    ctx.drawImage(treeTrunkImg, worldX - bgW / 2 - camX, (cy - i) * bgH + bgH / 2 - bgW / 2 - camY, bgW, bgW);
+                                }
+                                // 3. 树叶 (从下往上画，绝对盖住树干)
+                                let leafS = bgW * leafSizeMultiplier;
+                                // 底排 5
+                                for (let dx = -2; dx <= 2; dx++) {
+                                    ctx.drawImage(leafImg, (cx + dx) * bgW + bgW / 2 - leafS / 2 - camX, (topY - 1) * bgH + bgH / 2 - leafS / 2 - camY, leafS, leafS);
+                                }
+                                // 中排 5
+                                for (let dx = -2; dx <= 2; dx++) {
+                                    ctx.drawImage(leafImg, (cx + dx) * bgW + bgW / 2 - leafS / 2 - camX, (topY - 2) * bgH + bgH / 2 - leafS / 2 - camY, leafS, leafS);
+                                }
+                                // 顶排 3
+                                for (let dx = -1; dx <= 1; dx++) {
+                                    ctx.drawImage(leafImg, (cx + dx) * bgW + bgW / 2 - leafS / 2 - camX, (topY - 3) * bgH + bgH / 2 - leafS / 2 - camY, leafS, leafS);
+                                }
+                            }
+                        });
                     }
 
-                    // 地面物品
                     if (!isTreeOccupied(cx, cy)) {
                         const worldX = cx * bgW + bgW / 2, worldY = cy * bgH + bgH / 2;
                         const itemRand = hash(cx, cy, 1);
@@ -511,7 +520,6 @@
                 }
             }
 
-            // 玩家也拆散加入列表，计算脚底坐标
             let currentPlayerImg = playerImg; 
             const speed = Math.hypot(velocityX, velocityY);
             if (speed > 0.2) {
@@ -520,6 +528,7 @@
             }
             if (!currentPlayerImg || !currentPlayerImg.complete || currentPlayerImg.naturalHeight === 0) currentPlayerImg = playerImg;
             
+            // 玩家的基准点定为脚底坐标
             renderList.push({ 
                 y: playerY + playerH / 2, 
                 x: playerX, 
@@ -527,10 +536,10 @@
                 isPlayer: true 
             });
 
-            // 统一排序
+            // Y 轴排序
             renderList.sort((a, b) => a.y - b.y);
 
-            // 统一渲染
+            // 渲染
             for (let item of renderList) {
                 if (item.isPlayer) {
                     const pX = Math.round(logicWidth / 2 - playerW / 2);
@@ -541,6 +550,8 @@
                         ctx.fillStyle = '#3498db'; ctx.fillRect(pX, pY, playerW, playerH);
                         ctx.fillStyle = '#000'; ctx.fillRect(pX + 10, pY + 10, 6, 10); ctx.fillRect(pX + 32, pY + 10, 6, 10);
                     }
+                } else if (item.type === 'tree') {
+                    item.draw();
                 } else {
                     if (item.img.complete && item.img.naturalHeight !== 0) {
                         ctx.drawImage(item.img, item.x - item.size / 2 - camX, item.y - item.size / 2 - camY, item.size, item.size);
