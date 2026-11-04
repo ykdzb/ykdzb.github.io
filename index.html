@@ -28,7 +28,7 @@
         const grassChance = 0.025, pebbleChance = 0.025;
         
         const treeChance = pebbleChance / 10; 
-        const leafSizeMultiplier = 1.4; // 树叶放大倍数
+        const leafSizeMultiplier = 1.4; 
 
         const maxSpeed = 5.5, maxRadius = 250, accelerationSmooth = 0.15, friction = 0.94;
         const uiItemSize = 38, uiGap = 9, uiBottomMargin = 12, placeBtnSize = 38, placeBtnMargin = 18;
@@ -166,7 +166,6 @@
             return ((n ^ (n >> 16)) >>> 0) / 4294967296;
         }
 
-        // 🌟 扩大判定半径至4，防止树冠互相穿插
         function isTreeCenter(cx, cy) {
             if (hash(cx, cy, 99) >= treeChance) return false;
             
@@ -176,7 +175,6 @@
                     const otherH = hash(cx + dx, cy + dy, 99);
                     if (otherH < treeChance) {
                         const myH = hash(cx, cy, 99);
-                        // 防止哈希碰撞导致无限循环，加入严格的坐标对比
                         if (otherH < myH || (otherH === myH && (cx + dx < cx || (cx + dx === cx && cy + dy < cy)))) {
                             return false; 
                         }
@@ -460,35 +458,42 @@
 
             renderList = [];
             
-            // 🌟 修复边缘消失：根据树干高度，不对称扩大扫描范围
-            const startCellX = Math.floor(camX / bgW) - 6, endCellX = Math.floor((camX + logicWidth) / bgW) + 6;
-            const startCellY = Math.floor(camY / bgH) - 10, endCellY = Math.floor((camY + logicHeight) / bgH) + 6;
+            // 🌟 核心修复：向下多扫描 10 格。这样哪怕是最高的树的顶端叶子，只要刚露头就会被扫进渲染列表
+            const startCellX = Math.floor(camX / bgW) - 5, endCellX = Math.floor((camX + logicWidth) / bgW) + 5;
+            const startCellY = Math.floor(camY / bgH) - 10, endCellY = Math.floor((camY + logicHeight) / bgH) + 10;
 
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
                     
+                    // 🌟 拆散渲染：树墩、树干、树叶各自独立计算 Y 坐标放入渲染列表
                     if (isTreeCenter(cx, cy)) {
                         let trunkHeight = Math.floor(hash(cx, cy, 100) * 3) + 3; // 3 到 5 个树干
                         let topY = cy - trunkHeight;
-                        let worldX = cx * bgW + bgW / 2;
-                        let worldY = cy * bgH + bgH / 2;
+
+                        // 树墩
+                        renderList.push({ 
+                            y: cy * bgH + bgH / 2, 
+                            x: cx * bgW + bgW / 2, 
+                            img: treeStumpImg, size: bgW 
+                        });
                         
-                        // 🌟 修复遮挡逻辑：树的基准点改为树根的最底边
-                        let sortY = cy * bgH + bgH;
-
-                        let treeParts = [];
-                        treeParts.push({ img: treeStumpImg, x: worldX, y: worldY, size: bgW });
+                        // 树干
                         for (let i = 1; i <= trunkHeight; i++) {
-                            treeParts.push({ img: treeTrunkImg, x: worldX, y: (cy - i) * bgH + bgH / 2, size: bgW });
+                            renderList.push({ 
+                                y: (cy - i) * bgH + bgH / 2, 
+                                x: cx * bgW + bgW / 2, 
+                                img: treeTrunkImg, size: bgW 
+                            });
                         }
-                        let leafS = bgW * leafSizeMultiplier;
-                        for (let dx = -2; dx <= 2; dx++) treeParts.push({ img: leafImg, x: (cx + dx) * bgW + bgW / 2, y: (topY - 1) * bgH + bgH / 2, size: leafS });
-                        for (let dx = -2; dx <= 2; dx++) treeParts.push({ img: leafImg, x: (cx + dx) * bgW + bgW / 2, y: (topY - 2) * bgH + bgH / 2, size: leafS });
-                        for (let dx = -1; dx <= 1; dx++) treeParts.push({ img: leafImg, x: (cx + dx) * bgW + bgW / 2, y: (topY - 3) * bgH + bgH / 2, size: leafS });
 
-                        renderList.push({ type: 'tree', y: sortY, x: worldX, parts: treeParts });
+                        // 树叶
+                        let leafS = bgW * leafSizeMultiplier;
+                        for (let dx = -2; dx <= 2; dx++) renderList.push({ y: (topY - 1) * bgH + bgH / 2, x: (cx + dx) * bgW + bgW / 2, img: leafImg, size: leafS });
+                        for (let dx = -2; dx <= 2; dx++) renderList.push({ y: (topY - 2) * bgH + bgH / 2, x: (cx + dx) * bgW + bgW / 2, img: leafImg, size: leafS });
+                        for (let dx = -1; dx <= 1; dx++) renderList.push({ y: (topY - 3) * bgH + bgH / 2, x: (cx + dx) * bgW + bgW / 2, img: leafImg, size: leafS });
                     }
 
+                    // 地面物品
                     if (!isTreeOccupied(cx, cy)) {
                         const worldX = cx * bgW + bgW / 2, worldY = cy * bgH + bgH / 2;
                         const itemRand = hash(cx, cy, 1);
@@ -506,6 +511,7 @@
                 }
             }
 
+            // 玩家也拆散加入列表，计算脚底坐标
             let currentPlayerImg = playerImg; 
             const speed = Math.hypot(velocityX, velocityY);
             if (speed > 0.2) {
@@ -514,7 +520,6 @@
             }
             if (!currentPlayerImg || !currentPlayerImg.complete || currentPlayerImg.naturalHeight === 0) currentPlayerImg = playerImg;
             
-            // 🌟 修复遮挡逻辑：玩家的基准点改为脚底
             renderList.push({ 
                 y: playerY + playerH / 2, 
                 x: playerX, 
@@ -522,9 +527,10 @@
                 isPlayer: true 
             });
 
-            // Y 轴排序
+            // 统一排序
             renderList.sort((a, b) => a.y - b.y);
 
+            // 统一渲染
             for (let item of renderList) {
                 if (item.isPlayer) {
                     const pX = Math.round(logicWidth / 2 - playerW / 2);
@@ -534,12 +540,6 @@
                     } else {
                         ctx.fillStyle = '#3498db'; ctx.fillRect(pX, pY, playerW, playerH);
                         ctx.fillStyle = '#000'; ctx.fillRect(pX + 10, pY + 10, 6, 10); ctx.fillRect(pX + 32, pY + 10, 6, 10);
-                    }
-                } else if (item.type === 'tree') {
-                    for (let part of item.parts) {
-                        if (part.img.complete && part.img.naturalHeight !== 0) {
-                            ctx.drawImage(part.img, part.x - part.size / 2 - camX, part.y - part.size / 2 - camY, part.size, part.size);
-                        }
                     }
                 } else {
                     if (item.img.complete && item.img.naturalHeight !== 0) {
