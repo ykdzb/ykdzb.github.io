@@ -27,9 +27,9 @@
         const bgTargetSize = 80, playerTargetSize = 48, itemTargetSize = 64;
         const grassChance = 0.025, pebbleChance = 0.025;
         
-        // 树的生成概率
-        const treeChance = 0.008; // 0.8% 的概率生成一棵树，避免满屏都是树
-        const leafSizeMultiplier = 1.6; // 树叶放大倍数（产生重叠）
+        // 🌟 树生成概率：石头的十分之一
+        const treeChance = pebbleChance / 10; 
+        const leafSizeMultiplier = 1.4; // 树叶放大倍数
 
         const maxSpeed = 5.5, maxRadius = 250, accelerationSmooth = 0.15, friction = 0.94;
         const uiItemSize = 38, uiGap = 9, uiBottomMargin = 12, placeBtnSize = 38, placeBtnMargin = 18;
@@ -48,7 +48,6 @@
         const placeImg = new Image(), pressedPlaceImg = new Image();
         const joystickBaseImg = new Image(), joystickControlImg = new Image();
         
-        // 🌟 新增：树木资源
         const treeStumpImg = new Image();
         const treeTrunkImg = new Image();
         const leafImg = new Image();
@@ -100,7 +99,6 @@
             if (keys.hasOwnProperty(key)) keys[key] = false;
         });
 
-        // 将所有图片加入加载列表
         const allImages = [
             bgImg, playerImg, playerRightImg, playerLeftImg, playerUpImg, playerDownImg,
             grassImg, pebbleImg, treeStumpImg, treeTrunkImg, leafImg,
@@ -169,11 +167,32 @@
             return ((n ^ (n >> 16)) >>> 0) / 4294967296;
         }
 
-        // 🌟 判断某个坐标是否被树的结构（树干/树根）占据，防止生成草和石头
-        function isTreeOccupied(x, y) {
-            if (hash(x, y, 99) < treeChance) return true; // 自身是树根
-            for (let i = 1; i <= 4; i++) {
-                if (hash(x, y + i, 99) < treeChance) return true; // 正下方有树根，说明自己是树干
+        // 🌟 判断一个点是不是树的中心，且保证不与其他树重叠
+        function isTreeCenter(cx, cy) {
+            if (hash(cx, cy, 99) >= treeChance) return false;
+            
+            // 检查周围 5x5 范围，如果附近有树，比较哈希值决定谁先生成，防止重叠
+            for (let dx = -2; dx <= 2; dx++) {
+                for (let dy = -2; dy <= 2; dy++) {
+                    if (dx === 0 && dy === 0) continue;
+                    const otherH = hash(cx + dx, cy + dy, 99);
+                    if (otherH < treeChance) {
+                        const myH = hash(cx, cy, 99);
+                        // 如果别人的哈希更小（优先级更高），或者哈希相同但坐标靠前，则自己让位
+                        if (otherH < myH || (otherH === myH && (cx + dx < cx || (cx + dx === cx && cy + dy < cy)))) {
+                            return false; 
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+
+        // 🌟 检查当前格子是否被树的任何部分占据（防止刷草/石头重叠）
+        function isTreeOccupied(cx, cy) {
+            // 检查自己是树根，或者上方 8 格内有树根（说明自己在树干或树冠的位置）
+            for (let dy = 0; dy <= 8; dy++) {
+                if (isTreeCenter(cx, cy - dy)) return true;
             }
             return false;
         }
@@ -277,7 +296,6 @@
         }
 
         // ================= 输入事件 =================
-
         canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault(); 
             const { x, y } = getLogicCoords(e.clientX, e.clientY);
@@ -378,7 +396,6 @@
         });
 
         // ================= 逻辑更新与渲染 =================
-
         function update() {
             let targetVx = 0, targetVy = 0, isMoving = false;
             let kdx = 0, kdy = 0;
@@ -422,7 +439,6 @@
             if (selectedItemIndex >= activeItems.length) selectedItemIndex = Math.max(0, activeItems.length - 1);
         }
 
-        // 🌟 渲染列表
         let renderList = [];
 
         function draw() {
@@ -437,7 +453,6 @@
 
             const camX = Math.round(playerX - logicWidth / 2), camY = Math.round(playerY - logicHeight / 2);
 
-            // 1. 画背景
             if (bgImg.complete && bgImg.naturalHeight !== 0) {
                 const startX = Math.floor(camX / bgW) * bgW, startY = Math.floor(camY / bgH) * bgH;
                 for (let x = startX; x <= camX + logicWidth; x += bgW) {
@@ -448,49 +463,40 @@
             }
 
             renderList = [];
-            const startCellX = Math.floor(camX / bgW) - 1, endCellX = Math.floor((camX + logicWidth) / bgW) + 1;
-            const startCellY = Math.floor(camY / bgH) - 1, endCellY = Math.floor((camY + logicHeight) / bgH) + 1;
+            // 🌟 修复边缘裁剪：向四周多扫描 5 个格子，防止大树在屏幕边缘若隐若现
+            const startCellX = Math.floor(camX / bgW) - 5, endCellX = Math.floor((camX + logicWidth) / bgW) + 5;
+            const startCellY = Math.floor(camY / bgH) - 5, endCellY = Math.floor((camY + logicHeight) / bgH) + 5;
 
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
                     
-                    // --- 生成树 ---
-                    if (hash(cx, cy, 99) < treeChance) {
-                        // 计算这棵树具体长什么样
-                        let trunkHeight = hash(cx, cy, 100) > 0.5 ? 3 : 4; // 3或4个树干
-                        let topY = cy - trunkHeight; // 树干顶部的Y坐标
+                    // --- 生成树（作为一个整体实体） ---
+                    if (isTreeCenter(cx, cy)) {
+                        let trunkHeight = Math.floor(hash(cx, cy, 100) * 3) + 3; // 3 到 5 个树干
+                        let topY = cy - trunkHeight;
+                        let worldX = cx * bgW + bgW / 2;
+                        let worldY = cy * bgH + bgH / 2; // 排序基准点（树根的中心）
 
+                        let treeParts = [];
                         // 树根
-                        renderList.push({ 
-                            y: cy * bgH + bgH / 2, x: cx * bgW + bgW / 2, 
-                            img: treeStumpImg, size: bgW 
-                        });
-
+                        treeParts.push({ img: treeStumpImg, x: worldX, y: worldY, size: bgW });
                         // 树干
                         for (let i = 1; i <= trunkHeight; i++) {
-                            renderList.push({ 
-                                y: (cy - i) * bgH + bgH / 2, x: cx * bgW + bgW / 2, 
-                                img: treeTrunkImg, size: bgW 
-                            });
+                            treeParts.push({ img: treeTrunkImg, x: worldX, y: (cy - i) * bgH + bgH / 2, size: bgW });
                         }
-
-                        // 树叶（放大重叠，放入渲染列表）
+                        // 树叶
                         let leafS = bgW * leafSizeMultiplier;
                         // 底排 5
-                        for (let dx = -2; dx <= 2; dx++) {
-                            renderList.push({ y: (topY - 1) * bgH + bgH / 2, x: (cx + dx) * bgW + bgW / 2, img: leafImg, size: leafS });
-                        }
+                        for (let dx = -2; dx <= 2; dx++) treeParts.push({ img: leafImg, x: (cx + dx) * bgW + bgW / 2, y: (topY - 1) * bgH + bgH / 2, size: leafS });
                         // 中排 5
-                        for (let dx = -2; dx <= 2; dx++) {
-                            renderList.push({ y: (topY - 2) * bgH + bgH / 2, x: (cx + dx) * bgW + bgW / 2, img: leafImg, size: leafS });
-                        }
+                        for (let dx = -2; dx <= 2; dx++) treeParts.push({ img: leafImg, x: (cx + dx) * bgW + bgW / 2, y: (topY - 2) * bgH + bgH / 2, size: leafS });
                         // 顶排 3
-                        for (let dx = -1; dx <= 1; dx++) {
-                            renderList.push({ y: (topY - 3) * bgH + bgH / 2, x: (cx + dx) * bgW + bgW / 2, img: leafImg, size: leafS });
-                        }
+                        for (let dx = -1; dx <= 1; dx++) treeParts.push({ img: leafImg, x: (cx + dx) * bgW + bgW / 2, y: (topY - 3) * bgH + bgH / 2, size: leafS });
+
+                        renderList.push({ type: 'tree', y: worldY, x: worldX, parts: treeParts });
                     }
 
-                    // --- 生成地面物品（避开树木占据的格子） ---
+                    // --- 生成地面物品 ---
                     if (!isTreeOccupied(cx, cy)) {
                         const worldX = cx * bgW + bgW / 2, worldY = cy * bgH + bgH / 2;
                         const itemRand = hash(cx, cy, 1);
@@ -508,7 +514,7 @@
                 }
             }
 
-            // 🌟 将玩家也加入渲染列表
+            // 加入玩家
             let currentPlayerImg = playerImg; 
             const speed = Math.hypot(velocityX, velocityY);
             if (speed > 0.2) {
@@ -523,7 +529,7 @@
                 isPlayer: true 
             });
 
-            // 🌟 按照 Y 坐标排序（从小到大）
+            // 🌟 Y 轴排序（整体排序，拒绝穿模）
             renderList.sort((a, b) => a.y - b.y);
 
             // 🌟 统一渲染
@@ -537,9 +543,15 @@
                         ctx.fillStyle = '#3498db'; ctx.fillRect(pX, pY, playerW, playerH);
                         ctx.fillStyle = '#000'; ctx.fillRect(pX + 10, pY + 10, 6, 10); ctx.fillRect(pX + 32, pY + 10, 6, 10);
                     }
+                } else if (item.type === 'tree') {
+                    // 渲染整棵树
+                    for (let part of item.parts) {
+                        if (part.img.complete && part.img.naturalHeight !== 0) {
+                            ctx.drawImage(part.img, part.x - part.size / 2 - camX, part.y - part.size / 2 - camY, part.size, part.size);
+                        }
+                    }
                 } else {
                     if (item.img.complete && item.img.naturalHeight !== 0) {
-                        // 因为树叶尺寸放大了，所以计算中心偏移
                         ctx.drawImage(item.img, item.x - item.size / 2 - camX, item.y - item.size / 2 - camY, item.size, item.size);
                     }
                 }
