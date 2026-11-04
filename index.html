@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Alpha 1.0</title>
+    <title>Alpha 1.0 - 合成版</title>
     <style>
-        /* 页面和画布的样式：让游戏铺满整个屏幕，去掉手机上的点击高亮 */
         body, html {
             margin: 0; padding: 0; width: 100%; height: 100%;
             overflow: hidden; background-color: #3b7a3b; user-select: none;
@@ -25,74 +24,55 @@
         const ctx = canvas.getContext('2d');
 
         // ======================= 一、核心配置区 =======================
-        // 想改游戏手感？绝大部分都在这里调！
-        // 比如把 maxSpeed 从 5.5 改成 10，角色就会跑得飞快。
+        const bgTargetSize = 80, playerTargetSize = 48, itemTargetSize = 64;
+        const grassChance = 0.025, pebbleChance = 0.025;
+        const treeChance = pebbleChance / 10;
+        const leafSizeMultiplier = 1.4;
 
-        const bgTargetSize = 80;       // 一个草地格子多大（像素）
-        const playerTargetSize = 48;   // 玩家角色多大
-        const itemTargetSize = 64;     // 地上草/石头多大
+        const maxSpeed = 5.5, maxRadius = 250, accelerationSmooth = 0.15, friction = 0.94;
+        
+        // UI 配置
+        const uiItemSize = 38, uiGap = 9, uiBottomMargin = 12, placeBtnSize = 38, placeBtnMargin = 18;
+        const electorSlideSpeed = 0.2, joystickBaseSize = 102, joystickBaseMargin = 30, joystickControlSize = 51;
+        
+        // 合成 UI 配置
+        const craftSize = 102, craftMargin = 30;
+        const craftSlotSize = 40; // 放入合成框内的物品大小
 
-        const grassChance = 0.025;     // 每个格子是草的概率（2.5%）
-        const pebbleChance = 0.025;    // 每个格子是石头的概率（2.5%）
-        const treeChance = pebbleChance / 10;  // 是树的概率（更稀有）
-
-        const leafSizeMultiplier = 1.4;  // 树叶图片比格子大 1.4 倍
-
-        // 移动手感
-        const maxSpeed = 5.5;              // 最大速度
-        const maxRadius = 250;             // 鼠标拖拽时，多远达到最大速度
-        const accelerationSmooth = 0.15;   // 加速的平滑程度（越小越"滑"）
-        const friction = 0.94;             // 摩擦力（松手后减速度）
-
-        // UI 布局
-        const uiItemSize = 38;             // 底部物品栏每个格子大小
-        const uiGap = 9;                   // 物品栏格子间距
-        const uiBottomMargin = 12;         // 物品栏离屏幕底边的距离
-        const placeBtnSize = 38;           // "放置"按钮大小
-        const placeBtnMargin = 18;         // "放置"按钮离屏幕右下角的距离
-        const electorSlideSpeed = 0.2;     // 选中框滑动的速度
-        const joystickBaseSize = 102;      // 摇杆底座直径
-        const joystickBaseMargin = 30;     // 摇杆离屏幕左下角的距离
-        const joystickControlSize = 51;    // 摇杆上那根杆子的直径
-
-        // 【改进】固定时间步长
-        // 原来游戏速度依赖屏幕刷新率：144Hz 屏幕上角色会跑得飞快，30Hz 掉帧时会变慢。
-        // 现在把逻辑固定在每秒 60 次，无论什么显示器，速度都一样。
         const FIXED_DT = 1000 / 60;
-        const MAX_FRAME_TIME = 200;  // 切标签页回来时，最多补 200ms 的逻辑，防止"瞬移"
-
-        // 【新增】树信息缓存上限，避免玩久了内存爆掉
+        const MAX_FRAME_TIME = 200;
         const TREE_CACHE_LIMIT = 20000;
 
         // ======================= 二、游戏状态变量 =======================
+        const collectedGrassSet = new Set(), collectedPebbleSet = new Set(), placedItems = new Map();
+        
+        // 扩充库存
+        const inventory = { grass: 0, pebble: 0, hey: 0, rope: 0 };
+        
+        let selectedItemIndex = 0, isPlaceButtonPressed = false, electorVisualX = null;
+        let isTouchMode = true, joystickActive = false, joystickTouchId = null;
+        let joystickCurrentX = 0, joystickCurrentY = 0;
 
-        // 记录哪些草/石头已经被捡走了（key = "格子X,格子Y"）
-        const collectedGrassSet = new Set();
-        const collectedPebbleSet = new Set();
-        // 记录玩家自己放置的物品
-        const placedItems = new Map();
-        // 库存：草和石头各有几个
-        const inventory = { grass: 0, pebble: 0 };
-
-        let selectedItemIndex = 0;         // 当前选中物品栏第几个
-        let isPlaceButtonPressed = false;  // 放置按钮是否被按下（用于显示按下的图）
-        let electorVisualX = null;         // 选中框的视觉 X 位置（用于滑动动画）
-
-        let isTouchMode = true;            // 是否触摸模式（决定要不要画摇杆和按钮）
-        let joystickActive = false;        // 摇杆是否激活
-        let joystickTouchId = null;        // 哪根手指在控制摇杆
-        let joystickCurrentX = 0, joystickCurrentY = 0;  // 摇杆当前位置
+        // 合成系统状态
+        // 0:左上, 1:右上, 2:左下, 3:右下
+        // 每个槽位包含: { type: 'grass'|'hey'|'rope', visX: number, visY: number, scale: number }
+        let craftSlots = [null, null, null, null]; 
+        let craftState = 'idle'; // idle(空闲), shaking(失败), crafting(合成中), result(显示结果), collecting(收回结果)
+        let craftResult = null;  // { type: 'hey', count: 4 }
+        let craftAnimTimer = 0;
+        let craftShakeOffset = { x: 0, y: 0 };
+        let lastEdgeClickTime = 0;
 
         // ======================= 三、加载图片 =======================
-        // 每个图片都是一个 Image 对象，src 是图片路径
         const bgImg = new Image(), playerImg = new Image(), playerRightImg = new Image();
         const playerLeftImg = new Image(), playerUpImg = new Image(), playerDownImg = new Image();
         const grassImg = new Image(), pebbleImg = new Image(), electorImg = new Image();
         const placeImg = new Image(), pressedPlaceImg = new Image();
         const joystickBaseImg = new Image(), joystickControlImg = new Image();
-        const treeStumpImg = new Image();
-        const treeTrunkImg = new Image();
-        const leafImg = new Image();
+        const treeStumpImg = new Image(), treeTrunkImg = new Image(), leafImg = new Image();
+        
+        // 新增加载
+        const craftImg = new Image(), heyImg = new Image(), ropeImg = new Image();
 
         bgImg.src = './Game/picture/item/grass_land.png';
         playerImg.src = './Game/picture/mob/player.png';
@@ -110,37 +90,33 @@
         pressedPlaceImg.src = './Game/picture/ui/pressed_place.png';
         joystickBaseImg.src = './Game/picture/ui/joystick.png';
         joystickControlImg.src = './Game/picture/ui/control_stick.png';
+        
+        // 新增图片路径 (请确保文件存在)
+        craftImg.src = './Game/picture/ui/craft.png';
+        heyImg.src = './Game/picture/item/hey.png';
+        ropeImg.src = './Game/picture/item/rope.png';
 
-        // 数字图片：0~9 各一张，用来显示物品数量
         const digitImgs = {};
         for (let i = 0; i <= 9; i++) {
             digitImgs[i] = new Image();
             digitImgs[i].src = `./Game/picture/text/${i}.png`;
         }
 
-        // ======================= 四、屏幕和玩家状态 =======================
-        let bgW = bgTargetSize, bgH = bgTargetSize;           // 格子的实际宽高
-        let playerW = playerTargetSize, playerH = playerTargetSize;
-        let logicWidth = window.innerWidth, logicHeight = window.innerHeight;  // 逻辑分辨率
-        let isPortraitForced = false;     // 是否强制横屏（手机竖着拿时）
-        let isGameStarted = false;        // 是否已经加载完开始游戏
+        let bgW = bgTargetSize, bgH = bgTargetSize, playerW = playerTargetSize, playerH = playerTargetSize;
+        let logicWidth = window.innerWidth, logicHeight = window.innerHeight;
+        let isPortraitForced = false, isGameStarted = false;
+        let playerX = 0, playerY = 0, velocityX = 0, velocityY = 0;
+        let isMouseDown = false, mouseX = 0, mouseY = 0;
+        let errors = [];
 
-        let playerX = 0, playerY = 0;     // 玩家在世界里的坐标
-        let velocityX = 0, velocityY = 0; // 玩家当前速度
-
-        let isMouseDown = false, mouseX = 0, mouseY = 0;  // 鼠标状态
-
-        let errors = [];  // 记录加载失败的图片名
-
-        // ======================= 五、键盘事件 =======================
+        // ======================= 四、键盘事件 =======================
         const keys = { w: false, a: false, s: false, d: false, arrowup: false, arrowleft: false, arrowdown: false, arrowright: false };
-
         window.addEventListener('keydown', (e) => {
             const key = e.key.toLowerCase();
             if (keys.hasOwnProperty(key)) {
                 keys[key] = true;
-                if (key.startsWith('arrow')) e.preventDefault();  // 阻止方向键滚动页面
-                isTouchMode = false;  // 【改进】按键盘就切换到鼠标/键盘模式
+                if (key.startsWith('arrow')) e.preventDefault();
+                isTouchMode = false;
             }
         });
         window.addEventListener('keyup', (e) => {
@@ -148,31 +124,26 @@
             if (keys.hasOwnProperty(key)) keys[key] = false;
         });
 
-        // ======================= 六、图片加载系统 =======================
+        // ======================= 五、图片加载 =======================
         const allImages = [
             bgImg, playerImg, playerRightImg, playerLeftImg, playerUpImg, playerDownImg,
             grassImg, pebbleImg, treeStumpImg, treeTrunkImg, leafImg,
-            electorImg, placeImg, pressedPlaceImg, joystickBaseImg, joystickControlImg
+            electorImg, placeImg, pressedPlaceImg, joystickBaseImg, joystickControlImg,
+            craftImg, heyImg, ropeImg // 加入新图片
         ];
         for (let i = 0; i <= 9; i++) allImages.push(digitImgs[i]);
 
         let imagesLoaded = 0;
         const totalImages = allImages.length;
 
-        function checkLoaded() {
-            imagesLoaded++;
-            if (imagesLoaded >= totalImages) startGame();
-        }
+        function checkLoaded() { imagesLoaded++; if (imagesLoaded >= totalImages) startGame(); }
 
-        // 【改进】每张图片只计一次数。
-        // 原来的写法里，一张图可能被 onload 和 "img.complete" 判断各算一次，
-        // 会导致还没加载完就误以为加载完了。
         function trackImage(img) {
             let counted = false;
             const done = (failed) => {
                 if (counted) return;
                 counted = true;
-                if (failed) errors.push(img.src.split('/').pop());  // 记录失败的文件名
+                if (failed) errors.push(img.src.split('/').pop());
                 checkLoaded();
             };
             img.onload = () => done(false);
@@ -180,27 +151,14 @@
             if (img.complete) done(img.naturalHeight === 0);
         }
         allImages.forEach(trackImage);
-
-        // 兜底：如果 3 秒后还没加载完，直接开始游戏（避免卡在加载页）
         setTimeout(startGame, 3000);
 
         function startGame() {
             if (isGameStarted) return;
             isGameStarted = true;
-
-            // 用图片真实比例算格子高度（这样草地不会被拉变形）
-            if (bgImg.complete && bgImg.naturalHeight !== 0) {
-                bgW = bgTargetSize;
-                bgH = bgTargetSize * (bgImg.height / bgImg.width);
-            }
-            if (playerImg.complete && playerImg.naturalHeight !== 0) {
-                playerW = playerTargetSize;
-                playerH = playerTargetSize * (playerImg.height / playerImg.width);
-            }
-
+            if (bgImg.complete && bgImg.naturalHeight !== 0) { bgW = bgTargetSize; bgH = bgTargetSize * (bgImg.height / bgImg.width); }
+            if (playerImg.complete && playerImg.naturalHeight !== 0) { playerW = playerTargetSize; playerH = playerTargetSize * (playerImg.height / playerImg.width); }
             initScreen();
-
-            // 启动固定步长主循环
             lastFrameTime = performance.now();
             accumulator = 0;
             requestAnimationFrame(gameLoop);
@@ -208,67 +166,45 @@
 
         initScreen();
 
-        // ======================= 七、屏幕适配 =======================
+        // ======================= 六、屏幕适配 =======================
         function initScreen() {
-            const dpr = window.devicePixelRatio || 1;  // 高清屏（比如手机）要乘 DPR，否则会糊
+            const dpr = window.devicePixelRatio || 1;
             const w = window.innerWidth, h = window.innerHeight;
-
             if (h > w) {
-                // 手机竖着拿 → 强制把游戏转 90 度，让玩家"横着玩"
-                isPortraitForced = true;
-                logicWidth = h; logicHeight = w;
+                isPortraitForced = true; logicWidth = h; logicHeight = w;
                 canvas.width = logicWidth * dpr; canvas.height = logicHeight * dpr;
                 canvas.style.width = logicWidth + "px"; canvas.style.height = logicHeight + "px";
                 canvas.style.transformOrigin = "top left";
                 canvas.style.transform = `translateX(${w}px) rotate(90deg)`;
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             } else {
-                isPortraitForced = false;
-                logicWidth = w; logicHeight = h;
+                isPortraitForced = false; logicWidth = w; logicHeight = h;
                 canvas.width = logicWidth * dpr; canvas.height = logicHeight * dpr;
                 canvas.style.width = logicWidth + "px"; canvas.style.height = logicHeight + "px";
                 canvas.style.transform = "none";
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             }
-
-            // 屏幕变了，摇杆位置和选中框动画都要重置
             joystickCurrentX = joystickBaseMargin + joystickBaseSize / 2;
             joystickCurrentY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
             electorVisualX = null;
         }
 
-        // 【新增】窗口大小变化时重新计算。
-        // 加个防抖（setTimeout 120ms），避免拖动窗口时疯狂触发。
         let resizeTimer = null;
-        window.addEventListener('resize', () => {
-            clearTimeout(resizeTimer);
-            resizeTimer = setTimeout(initScreen, 120);
-        });
-        window.addEventListener('orientationchange', () => {
-            clearTimeout(resizeTimer);
-            resizeTimer = setTimeout(initScreen, 200);
-        });
+        window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(initScreen, 120); });
+        window.addEventListener('orientationchange', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(initScreen, 200); });
 
-        // 把鼠标/手指的屏幕坐标换成游戏逻辑坐标（手机横屏时要转回来）
         function getLogicCoords(clientX, clientY) {
             if (isPortraitForced) return { x: clientY, y: window.innerWidth - clientX };
             return { x: clientX, y: clientY };
         }
 
-        // ======================= 八、世界生成（哈希） =======================
-        // 这游戏没有"地图文件"，世界是"算"出来的！
-        // 给定一个格子坐标 (x, y)，hash() 永远返回同一个 0~1 之间的随机数。
-        // 小于 0.025 就是草，小于 0.05 就是石头…… 这就是"程序化生成"。
-
+        // ======================= 七、世界生成 =======================
         function hash(x, y, seed = 0) {
             let n = x * 374761393 + y * 668265263 + seed * 144665;
             n = (n ^ (n >> 13)) * 1274126177;
             return ((n ^ (n >> 16)) >>> 0) / 4294967296;
         }
 
-        // 【改进】判断一个格子是不是"树的中心"。
-        // 规则：自己是树概率内的，并且周围 9×9 范围内没有"更该长树"的格子。
-        // 这样树就不会挤在一起（每个"树苗"会把附近的其他树苗挤掉）。
         function computeIsTreeCenter(cx, cy) {
             const myH = hash(cx, cy, 99);
             if (myH >= treeChance) return false;
@@ -277,96 +213,70 @@
                     if (dx === 0 && dy === 0) continue;
                     const otherH = hash(cx + dx, cy + dy, 99);
                     if (otherH < treeChance) {
-                        // 有别的树苗比自己"更该长树" → 自己不长
-                        if (otherH < myH || (otherH === myH && (cx + dx < cx || (cx + dx === cx && cy + dy < cy)))) {
-                            return false;
-                        }
+                        if (otherH < myH || (otherH === myH && (cx + dx < cx || (cx + dx === cx && cy + dy < cy)))) return false;
                     }
                 }
             }
             return true;
         }
 
-        // 【改进】加了缓存！原来每帧要算几十万次 hash，卡得不轻。
-        // 现在算过一次就记在 Map 里，下次直接查表。
         const treeInfoCache = new Map();
         function getTreeInfo(cx, cy) {
             const key = cx + ',' + cy;
             let info = treeInfoCache.get(key);
             if (info) return info;
-
             const isCenter = computeIsTreeCenter(cx, cy);
             const trunkHeight = isCenter ? Math.floor(hash(cx, cy, 100) * 3) + 3 : 0;
             info = { isCenter, trunkHeight };
             treeInfoCache.set(key, info);
-
-            // 缓存太大了就删掉最早的 1/4
             if (treeInfoCache.size > TREE_CACHE_LIMIT) {
-                const toDelete = Math.floor(TREE_CACHE_LIMIT / 4);
-                let i = 0;
-                for (const k of treeInfoCache.keys()) {
-                    treeInfoCache.delete(k);
-                    if (++i >= toDelete) break;
-                }
+                let i = 0; const del = Math.floor(TREE_CACHE_LIMIT / 4);
+                for (const k of treeInfoCache.keys()) { treeInfoCache.delete(k); if (++i >= del) break; }
             }
             return info;
         }
-
         function isTreeCenter(cx, cy) { return getTreeInfo(cx, cy).isCenter; }
 
-        // 判断某格是否"被树占据"（树的上下左右 8 格 + 自己）
-        // ⚠️ 这个函数是给"放置物品"用的！别拿去做碰撞（后面 isBlocked 里有详细说明）
         const occupiedCache = new Map();
         function isTreeOccupied(cx, cy) {
             const key = cx + ',' + cy;
             const cached = occupiedCache.get(key);
             if (cached !== undefined) return cached;
-
             let occupied = false;
             for (let dy = 0; dy <= 8; dy++) {
                 if (isTreeCenter(cx, cy - dy)) { occupied = true; break; }
             }
             occupiedCache.set(key, occupied);
-
             if (occupiedCache.size > TREE_CACHE_LIMIT) {
-                const toDelete = Math.floor(TREE_CACHE_LIMIT / 4);
-                let i = 0;
-                for (const k of occupiedCache.keys()) {
-                    occupiedCache.delete(k);
-                    if (++i >= toDelete) break;
-                }
+                let i = 0; const del = Math.floor(TREE_CACHE_LIMIT / 4);
+                for (const k of occupiedCache.keys()) { occupiedCache.delete(k); if (++i >= del) break; }
             }
             return occupied;
         }
 
-        // ======================= 九、库存与物品 =======================
-
-        // 返回物品栏里有的物品（没有的物品不会出现在列表里）
+        // ======================= 八、库存与物品 =======================
         function getActiveItems() {
             const items = [];
             if (inventory.grass > 0) items.push({ type: 'grass', img: grassImg, count: inventory.grass });
             if (inventory.pebble > 0) items.push({ type: 'pebble', img: pebbleImg, count: inventory.pebble });
+            if (inventory.hey > 0) items.push({ type: 'hey', img: heyImg, count: inventory.hey });
+            if (inventory.rope > 0) items.push({ type: 'rope', img: ropeImg, count: inventory.rope });
             return items;
         }
 
-        // 检查玩家是不是点到了物品栏的某一格，点到了就切换选中项
         function checkInventoryClick(logicX, logicY) {
             const activeItems = getActiveItems();
             if (activeItems.length === 0) return false;
-
             const totalWidth = activeItems.length * uiItemSize + (activeItems.length - 1) * uiGap;
             const startX = (logicWidth - totalWidth) / 2;
             const startY = logicHeight - uiItemSize - uiBottomMargin;
 
             if (logicX >= startX - 10 && logicX <= startX + totalWidth + 10 &&
                 logicY >= startY - 10 && logicY <= startY + uiItemSize + 10) {
-
                 for (let i = 0; i < activeItems.length; i++) {
                     const itemX = startX + i * (uiItemSize + uiGap);
-                    const itemY = startY;
-                    if (logicX >= itemX && logicX <= itemX + uiItemSize &&
-                        logicY >= itemY && logicY <= itemY + uiItemSize) {
-                        selectedItemIndex = i;
+                    if (logicX >= itemX && logicX <= itemX + uiItemSize && logicY >= startY && logicY <= startY + uiItemSize) {
+                        selectedItemIndex = i; 
                         return true;
                     }
                 }
@@ -374,7 +284,6 @@
             return false;
         }
 
-        // 鼠标滚轮切换选中物品
         window.addEventListener('wheel', (e) => {
             const activeItems = getActiveItems();
             if (activeItems.length <= 1) return;
@@ -382,39 +291,33 @@
             else selectedItemIndex = (selectedItemIndex + 1) % activeItems.length;
         }, { passive: true });
 
-        // 在世界坐标 (targetWorldX, targetWorldY) 放一个物品
+        // 修改放置逻辑：去掉 isTreeOccupied，只限制不能在树根中心放
         function tryPlace(targetWorldX, targetWorldY) {
             const activeItems = getActiveItems();
             if (activeItems.length === 0) return;
             const selectedType = activeItems[selectedItemIndex].type;
 
-            // 换算成格子坐标
             const cx = Math.floor(targetWorldX / bgW);
             const cy = Math.floor(targetWorldY / bgH);
             const pointX = cx * bgW + bgW / 2;
             const pointY = cy * bgH + bgH / 2;
             const key = `${pointX},${pointY}`;
 
-            // 检查这个格子上有没有天然的草/石头
             const itemRand = hash(cx, cy, 1);
             let hasNatural = false;
             if (itemRand < grassChance) { if (!collectedGrassSet.has(key)) hasNatural = true; }
             else if (itemRand >= grassChance && itemRand < grassChance + pebbleChance) { if (!collectedPebbleSet.has(key)) hasNatural = true; }
 
-            // 已经有东西了、或者被树占了 → 不能放
-            if (hasNatural || placedItems.has(key) || isTreeOccupied(cx, cy)) return;
+            // 树桩中心不能放，但是树桩下面8格可以放了！
+            if (hasNatural || placedItems.has(key) || isTreeCenter(cx, cy)) return;
 
             placedItems.set(key, selectedType);
-            if (selectedType === 'grass') inventory.grass--;
-            if (selectedType === 'pebble') inventory.pebble--;
+            if (inventory[selectedType] > 0) inventory[selectedType]--;
         }
 
-        // 尝试在屏幕坐标 (logicX, logicY) 处捡起物品
         function tryCollect(logicX, logicY) {
-            // 屏幕坐标 → 世界坐标
             const camX = Math.round(playerX - logicWidth / 2), camY = Math.round(playerY - logicHeight / 2);
             const clickWorldX = logicX + camX, clickWorldY = logicY + camY;
-
             const startCellX = Math.floor((camX - itemTargetSize) / bgW) - 1;
             const endCellX = Math.floor((camX + logicWidth + itemTargetSize) / bgW) + 1;
             const startCellY = Math.floor((camY - itemTargetSize) / bgH) - 1;
@@ -426,20 +329,16 @@
                     const key = `${worldX},${worldY}`;
                     const hitW = itemTargetSize + 5, hitH = itemTargetSize + 5;
 
-                    // 判断点击位置是否在这个物品的判定框里
                     if (clickWorldX > worldX - hitW / 2 && clickWorldX < worldX + hitW / 2 &&
                         clickWorldY > worldY - hitH / 2 && clickWorldY < worldY + hitH / 2) {
-
-                        // 先看是不是玩家放的
+                        
                         if (placedItems.has(key)) {
                             const type = placedItems.get(key);
                             placedItems.delete(key);
-                            if (type === 'grass') inventory.grass++;
-                            if (type === 'pebble') inventory.pebble++;
+                            if (inventory[type] !== undefined) inventory[type]++;
                             return true;
                         }
 
-                        // 再看是不是天然的
                         const itemRand = hash(cx, cy, 1);
                         if (itemRand < grassChance) {
                             if (!collectedGrassSet.has(key)) { collectedGrassSet.add(key); inventory.grass++; return true; }
@@ -452,43 +351,224 @@
             return false;
         }
 
+        // ======================= 九、合成系统逻辑 =======================
+
+        // 获取合成框的屏幕坐标
+        function getCraftRect() {
+            const cx = logicWidth - craftSize - craftMargin;
+            const cy = logicHeight / 2 - craftSize / 2;
+            return { x: cx, y: cy, w: craftSize, h: craftSize };
+        }
+
+        // 获取物品栏中选中物品的屏幕坐标（用于飞入动画的起点）
+        function getSelectedItemScreenPos() {
+            const activeItems = getActiveItems();
+            if (activeItems.length === 0) return { x: logicWidth / 2, y: logicHeight };
+            const totalWidth = activeItems.length * uiItemSize + (activeItems.length - 1) * uiGap;
+            const startX = (logicWidth - totalWidth) / 2;
+            return {
+                x: startX + selectedItemIndex * (uiItemSize + uiGap) + uiItemSize / 2,
+                y: logicHeight - uiItemSize - uiBottomMargin + uiItemSize / 2
+            };
+        }
+
+        // 点击合成区域
+        function handleCraftClick(x, y) {
+            const rect = getCraftRect();
+            const isInside = x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
+
+            // 1. 处于 result 状态，点击收取
+            if (craftState === 'result') {
+                if (isInside) {
+                    // 飞向物品栏
+                    craftState = 'collecting';
+                    craftAnimTimer = 0;
+                    const targetPos = getSelectedItemScreenPos();
+                    craftResult.startX = rect.x + rect.w / 2;
+                    craftResult.startY = rect.y + rect.h / 2;
+                    craftResult.targetX = targetPos.x;
+                    craftResult.targetY = targetPos.y;
+                    return true;
+                }
+                return false;
+            }
+
+            // 2. 只有 idle 状态才能放入物品/双击合成
+            if (craftState !== 'idle') return false;
+
+            if (isInside) {
+                // 判断是不是双击边缘
+                const halfW = rect.w / 2, halfH = rect.h / 2;
+                const localX = x - rect.x, localY = y - rect.y;
+                // 判断是否在边缘（距离四条边小于15像素，或者判断角落以外的环形区域）
+                const isEdge = localX < 15 || localX > rect.w - 15 || localY < 15 || localY > rect.h - 15;
+                
+                if (isEdge) {
+                    const now = performance.now();
+                    if (now - lastEdgeClickTime < 350) { // 350ms内双击
+                        attemptCraft();
+                        lastEdgeClickTime = 0;
+                        return true;
+                    }
+                    lastEdgeClickTime = now;
+                }
+
+                // 尝试放入物品
+                if (x < rect.x + halfW && y < rect.y + halfH) return tryPutInSlot(0, x, y); // 左上
+                if (x >= rect.x + halfW && y < rect.y + halfH) return tryPutInSlot(1, x, y); // 右上
+                if (x < rect.x + halfW && y >= rect.y + halfH) return tryPutInSlot(2, x, y); // 左下
+                if (x >= rect.x + halfW && y >= rect.y + halfH) return tryPutInSlot(3, x, y); // 右下
+                
+                return true; // 点到了框内空白处，拦截
+            }
+            return false;
+        }
+
+        function tryPutInSlot(index, clickX, clickY) {
+            if (craftSlots[index] !== null) return true; // 该位置已有物品
+            const activeItems = getActiveItems();
+            if (activeItems.length === 0) return true;
+            
+            const item = activeItems[selectedItemIndex];
+            
+            // 扣除库存
+            inventory[item.type]--;
+            if (inventory[item.type] === 0 && selectedItemIndex >= getActiveItems().length) {
+                selectedItemIndex = Math.max(0, getActiveItems().length - 1);
+            }
+
+            // 计算飞入动画的起点
+            const startPos = getSelectedItemScreenPos();
+
+            craftSlots[index] = {
+                type: item.type,
+                img: item.img,
+                visX: startPos.x,
+                visY: startPos.y,
+                scale: 1
+            };
+            return true;
+        }
+
+        function attemptCraft() {
+            // 检查空位
+            let count = 0;
+            const types = craftSlots.map(s => s ? s.type : null);
+            for (let i = 0; i < 4; i++) if (types[i]) count++;
+
+            if (count === 0) return; // 什么都没放
+
+            // 配方1：4个草 -> 4个干草
+            if (count === 4 && types[0] === 'grass' && types[1] === 'grass' && types[2] === 'grass' && types[3] === 'grass') {
+                craftResult = { type: 'hey', count: 4, img: heyImg };
+                startCraftingAnim();
+                return;
+            }
+
+            // 配方2：左上、右上、左下是干草 -> 1个绳子
+            if (types[0] === 'hey' && types[1] === 'hey' && types[2] === 'hey' && types[3] === null) {
+                craftResult = { type: 'rope', count: 1, img: ropeImg };
+                startCraftingAnim();
+                return;
+            }
+
+            // 配方不对，抖动
+            craftState = 'shaking';
+            craftAnimTimer = 0;
+        }
+
+        function startCraftingAnim() {
+            craftState = 'crafting';
+            craftAnimTimer = 0;
+        }
+
+        function updateCraft() {
+            const rect = getCraftRect();
+            
+            // 处理物品飞入四个角
+            for (let i = 0; i < 4; i++) {
+                const slot = craftSlots[i];
+                if (!slot) continue;
+                if (craftState === 'crafting') continue; // 合成中由下面的逻辑接管
+
+                // 目标位置 (居中于四个象限)
+                let targetX = rect.x + craftSize * 0.25;
+                let targetY = rect.y + craftSize * 0.25;
+                if (i === 1) targetX = rect.x + craftSize * 0.75;
+                if (i === 2) targetY = rect.y + craftSize * 0.75;
+                if (i === 3) { targetX = rect.x + craftSize * 0.75; targetY = rect.y + craftSize * 0.75; }
+
+                // 平滑插值 (Lerp)
+                slot.visX += (targetX - slot.visX) * 0.2;
+                slot.visY += (targetY - slot.visY) * 0.2;
+                slot.scale += (1 - slot.scale) * 0.2;
+            }
+
+            if (craftState === 'shaking') {
+                craftAnimTimer += FIXED_DT;
+                if (craftAnimTimer < 400) {
+                    craftShakeOffset.x = (Math.random() - 0.5) * 10;
+                    craftShakeOffset.y = (Math.random() - 0.5) * 10;
+                } else {
+                    craftState = 'idle';
+                    craftShakeOffset = { x: 0, y: 0 };
+                }
+            } 
+            else if (craftState === 'crafting') {
+                craftAnimTimer += FIXED_DT;
+                // 将所有物品吸向中心并缩小
+                const centerX = rect.x + rect.w / 2;
+                const centerY = rect.y + rect.h / 2;
+                
+                for (let i = 0; i < 4; i++) {
+                    const slot = craftSlots[i];
+                    if (!slot) continue;
+                    slot.visX += (centerX - slot.visX) * 0.25;
+                    slot.visY += (centerY - slot.visY) * 0.25;
+                    slot.scale -= 0.08;
+                }
+
+                if (craftAnimTimer > 500) {
+                    craftSlots = [null, null, null, null];
+                    craftState = 'result';
+                    craftAnimTimer = 0;
+                    // 结果从0放大到1
+                    craftResult.scale = 0;
+                }
+            } 
+            else if (craftState === 'result') {
+                // 结果弹出现象
+                if (craftResult.scale < 1) {
+                    craftResult.scale += 0.1;
+                    if (craftResult.scale > 1) craftResult.scale = 1;
+                }
+            } 
+            else if (craftState === 'collecting') {
+                craftAnimTimer += FIXED_DT;
+                if (craftAnimTimer > 300) {
+                    // 结束，入库
+                    inventory[craftResult.type] += craftResult.count;
+                    craftResult = null;
+                    craftState = 'idle';
+                }
+            }
+        }
+
         // ======================= 十、碰撞检测 =======================
-        // 【修复】之前"树墩下面有空气墙"，是因为这里错用了 isTreeOccupied()。
-        // isTreeOccupied() 是判断"能不能在这里放物品"，会把树根上下左右 8 格
-        // 都算成"被树占据"——那本来是禁止放置用的，拿来当碰撞就会让玩家
-        // 离树墩 8 格远就撞墙。
-        // 正确做法：碰撞只判断"树根格子本身"（isTreeCenter）。
         function isBlocked(x, y) {
-            // 玩家"脚底"位置
-            const footX = x;
-            const footY = y + playerH / 2;
-
-            // 脚部碰撞盒：宽度约为角色一半，高度只到脚底上方一小段
-            const boxW = playerW * 0.5;
-            const boxH = playerH * 0.35;
-
-            const left   = footX - boxW / 2;
-            const right  = footX + boxW / 2;
-            const top    = footY - boxH;
-            const bottom = footY;
-
-            const minCX = Math.floor(left / bgW),  maxCX = Math.floor(right / bgW);
-            const minCY = Math.floor(top / bgH),   maxCY = Math.floor(bottom / bgH);
-
-            // 树墩的碰撞盒每边缩进去 15%，让玩家能"贴住树墩"而不显得僵硬
-            // （觉得玩家能压进树墩太多 → 调小；觉得像空气墙 → 调大，比如 0.25）
+            const footX = x, footY = y + playerH / 2;
+            const boxW = playerW * 0.5, boxH = playerH * 0.35;
+            const left = footX - boxW / 2, right = footX + boxW / 2;
+            const top = footY - boxH, bottom = footY;
+            const minCX = Math.floor(left / bgW), maxCX = Math.floor(right / bgW);
+            const minCY = Math.floor(top / bgH), maxCY = Math.floor(bottom / bgH);
             const inset = bgW * 0.15;
 
             for (let cx = minCX; cx <= maxCX; cx++) {
                 for (let cy = minCY; cy <= maxCY; cy++) {
-                    // ⚠️ 关键：这里只能用 isTreeCenter，不能用 isTreeOccupied！
                     if (!isTreeCenter(cx, cy)) continue;
-
-                    const tL = cx * bgW + inset;
-                    const tR = (cx + 1) * bgW - inset;
-                    const tT = cy * bgH + inset;
-                    const tB = (cy + 1) * bgH - inset;
-
+                    const tL = cx * bgW + inset, tR = (cx + 1) * bgW - inset;
+                    const tT = cy * bgH + inset, tB = (cy + 1) * bgH - inset;
                     if (right > tL && left < tR && bottom > tT && top < tB) return true;
                 }
             }
@@ -496,55 +576,49 @@
         }
 
         // ======================= 十一、输入事件 =======================
-
-        // 右键：在鼠标位置放置物品
         canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             const { x, y } = getLogicCoords(e.clientX, e.clientY);
+            
+            if (handleCraftClick(x, y)) return; // 优先处理合成
+
             const camX = Math.round(playerX - logicWidth / 2);
             const camY = Math.round(playerY - logicHeight / 2);
             tryPlace(x + camX, y + camY);
         });
 
-        canvas.addEventListener('mousedown', (e) => {
-            if (e.button === 0) {  // 只处理左键
-                isTouchMode = false;  // 【改进】鼠标操作就切到非触摸模式
+        canvas.addEventListener('mousedown', (e) => { 
+            if (e.button === 0) {
+                isTouchMode = false;
                 const { x, y } = getLogicCoords(e.clientX, e.clientY);
+                
+                if (handleCraftClick(x, y)) return;
 
-                // 先看有没有点到"放置"按钮
                 const btnX = logicWidth - placeBtnSize - placeBtnMargin;
                 const btnY = logicHeight - placeBtnSize - placeBtnMargin;
-                if (isTouchMode && x >= btnX && x <= btnX + placeBtnSize && y >= btnY && y <= btnY + placeBtnSize) {
+                if (x >= btnX && x <= btnX + placeBtnSize && y >= btnY && y <= btnY + placeBtnSize) {
                     isPlaceButtonPressed = true; tryPlace(playerX, playerY); return;
                 }
-
-                if (checkInventoryClick(x, y)) return;  // 点了物品栏
-                if (tryCollect(x, y)) return;            // 点了地上的物品
-
-                // 都不是 → 开始拖动移动
-                isMouseDown = true; mouseX = x; mouseY = y;
+                if (checkInventoryClick(x, y)) return;
+                if (tryCollect(x, y)) return;
+                isMouseDown = true; mouseX = x; mouseY = y; 
             }
         });
-
-        window.addEventListener('mousemove', (e) => {
-            if (isMouseDown) {
-                const { x, y } = getLogicCoords(e.clientX, e.clientY);
-                mouseX = x; mouseY = y;
-            }
+        
+        window.addEventListener('mousemove', (e) => { 
+            if (isMouseDown) { const { x, y } = getLogicCoords(e.clientX, e.clientY); mouseX = x; mouseY = y; } 
         });
-
-        window.addEventListener('mouseup', (e) => {
-            if (e.button === 0) { isMouseDown = false; isPlaceButtonPressed = false; }
-        });
+        window.addEventListener('mouseup', (e) => { if (e.button === 0) { isMouseDown = false; isPlaceButtonPressed = false; } });
 
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
-            isTouchMode = true;  // 【改进】触摸操作就切到触摸模式
+            isTouchMode = true;
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const touch = e.changedTouches[i];
                 const { x, y } = getLogicCoords(touch.clientX, touch.clientY);
+                
+                if (handleCraftClick(x, y)) continue;
 
-                // 点到摇杆区域？
                 const baseCenterX = joystickBaseMargin + joystickBaseSize / 2;
                 const baseCenterY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
                 if (Math.hypot(x - baseCenterX, y - baseCenterY) < joystickBaseSize) {
@@ -553,122 +627,95 @@
                     continue;
                 }
 
-                // 点到放置按钮？
                 const btnX = logicWidth - placeBtnSize - placeBtnMargin;
                 const btnY = logicHeight - placeBtnSize - placeBtnMargin;
                 if (x >= btnX && x <= btnX + placeBtnSize && y >= btnY && y <= btnY + placeBtnSize) {
                     isPlaceButtonPressed = true; tryPlace(playerX, playerY); continue;
                 }
-
                 if (checkInventoryClick(x, y)) continue;
                 if (tryCollect(x, y)) continue;
-
                 isMouseDown = true; mouseX = x; mouseY = y;
             }
         }, { passive: false });
-
+        
         window.addEventListener('touchmove', (e) => {
             e.preventDefault();
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const touch = e.changedTouches[i];
                 const { x, y } = getLogicCoords(touch.clientX, touch.clientY);
-
                 if (joystickActive && touch.identifier === joystickTouchId) {
-                    // 拖摇杆：限制在圆形范围内
                     const baseCenterX = joystickBaseMargin + joystickBaseSize / 2;
                     const baseCenterY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
                     let dx = x - baseCenterX, dy = y - baseCenterY;
-                    const dist = Math.hypot(dx, dy), maxDist = joystickBaseSize / 2;
+                    const dist = Math.hypot(dx, dy), maxDist = joystickBaseSize / 2; 
                     if (dist > maxDist) { dx = (dx / dist) * maxDist; dy = (dy / dist) * maxDist; }
                     joystickCurrentX = baseCenterX + dx; joystickCurrentY = baseCenterY + dy;
-                } else if (isMouseDown) {
-                    mouseX = x; mouseY = y;
-                }
+                } else if (isMouseDown) { mouseX = x; mouseY = y; }
             }
         }, { passive: false });
-
-        window.addEventListener('touchend', (e) => {
-            e.preventDefault();
+        
+        window.addEventListener('touchend', (e) => { 
+            e.preventDefault(); 
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const touch = e.changedTouches[i];
                 if (touch.identifier === joystickTouchId) {
-                    // 松手 → 摇杆归位
                     joystickActive = false; joystickTouchId = null;
                     joystickCurrentX = joystickBaseMargin + joystickBaseSize / 2;
                     joystickCurrentY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
                 }
             }
-            isMouseDown = false; isPlaceButtonPressed = false;
+            isMouseDown = false; isPlaceButtonPressed = false; 
         }, { passive: false });
-
-        window.addEventListener('touchcancel', () => {
+        
+        window.addEventListener('touchcancel', () => { 
             joystickActive = false; joystickTouchId = null;
             joystickCurrentX = joystickBaseMargin + joystickBaseSize / 2;
             joystickCurrentY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
-            isMouseDown = false; isPlaceButtonPressed = false;
+            isMouseDown = false; isPlaceButtonPressed = false; 
         });
 
-        // ======================= 十二、每帧逻辑更新（60 次/秒） =======================
+        // ======================= 十二、逻辑更新 =======================
         function update() {
-            // 1) 根据输入算出"目标速度"
             let targetVx = 0, targetVy = 0, isMoving = false;
             let kdx = 0, kdy = 0;
-
             if (keys.w || keys.arrowup) kdy -= 1;
             if (keys.s || keys.arrowdown) kdy += 1;
             if (keys.a || keys.arrowleft) kdx -= 1;
             if (keys.d || keys.arrowright) kdx += 1;
 
             if (kdx !== 0 || kdy !== 0) {
-                // 键盘移动
-                isMoving = true;
-                const length = Math.hypot(kdx, kdy);
-                targetVx = (kdx / length) * maxSpeed;
-                targetVy = (kdy / length) * maxSpeed;
+                isMoving = true; const length = Math.hypot(kdx, kdy);
+                targetVx = (kdx / length) * maxSpeed; targetVy = (kdy / length) * maxSpeed;
             } else if (joystickActive) {
-                // 摇杆移动
-                isMoving = true;
-                const bX = joystickBaseMargin + joystickBaseSize / 2;
+                isMoving = true; const bX = joystickBaseMargin + joystickBaseSize / 2;
                 const bY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
                 const dx = joystickCurrentX - bX, dy = joystickCurrentY - bY;
                 const dist = Math.hypot(dx, dy), maxDist = joystickBaseSize / 2;
-                const force = Math.min(dist / maxDist, 1);  // 摇杆推得越远，速度越快
-                if (dist > 5) {
-                    targetVx = (dx / dist) * maxSpeed * force;
-                    targetVy = (dy / dist) * maxSpeed * force;
-                }
+                const force = Math.min(dist / maxDist, 1);
+                if (dist > 5) { targetVx = (dx / dist) * maxSpeed * force; targetVy = (dy / dist) * maxSpeed * force; }
             } else if (isMouseDown) {
-                // 鼠标拖拽移动
                 isMoving = true;
                 const dx = mouseX - logicWidth / 2, dy = mouseY - logicHeight / 2;
                 const distance = Math.hypot(dx, dy);
-                if (distance > 10) {
+                if (distance > 10) { 
                     const effectiveDist = Math.min(distance, maxRadius);
                     const currentMaxSpeed = (effectiveDist / maxRadius) * maxSpeed;
-                    targetVx = (dx / distance) * currentMaxSpeed;
-                    targetVy = (dy / distance) * currentMaxSpeed;
+                    targetVx = (dx / distance) * currentMaxSpeed; targetVy = (dy / distance) * currentMaxSpeed;
                 }
             }
 
-            // 2) 平滑加速 / 摩擦减速
             if (isMoving) {
                 velocityX += (targetVx - velocityX) * accelerationSmooth;
                 velocityY += (targetVy - velocityY) * accelerationSmooth;
             } else {
-                velocityX *= friction;
-                velocityY *= friction;
+                velocityX *= friction; velocityY *= friction;
                 if (Math.abs(velocityX) < 0.05) velocityX = 0;
                 if (Math.abs(velocityY) < 0.05) velocityY = 0;
             }
 
-            // 3) 移动 + 分轴碰撞（撞墙时能贴墙滑）
-            // 分轴思路：先试 X 轴移动，能走就走；再试 Y 轴，能走就走。
-            // 这样撞树的时候，一个方向被挡住，另一个方向还能继续动，手感不会卡死。
             const stuck = isBlocked(playerX, playerY);
             if (stuck) {
-                // 如果已经卡在树里（比如出生点恰好在树上），允许自由移动，让玩家能走出来
-                playerX += velocityX;
-                playerY += velocityY;
+                playerX += velocityX; playerY += velocityY;
             } else {
                 const nextX = playerX + velocityX;
                 const nextY = playerY + velocityY;
@@ -676,13 +723,9 @@
                 if (!isBlocked(playerX, nextY)) playerY = nextY; else velocityY = 0;
             }
 
-            // 4) 物品栏选中项越界时修正
             const activeItems = getActiveItems();
-            if (selectedItemIndex >= activeItems.length) {
-                selectedItemIndex = Math.max(0, activeItems.length - 1);
-            }
+            if (selectedItemIndex >= activeItems.length) selectedItemIndex = Math.max(0, activeItems.length - 1);
 
-            // 5) 选中框的滑动动画（放在这里，跟 60Hz 逻辑同步）
             if (activeItems.length > 0) {
                 const totalWidth = activeItems.length * uiItemSize + (activeItems.length - 1) * uiGap;
                 const startX = (logicWidth - totalWidth) / 2;
@@ -693,42 +736,35 @@
                     if (Math.abs(targetX - electorVisualX) < 0.1) electorVisualX = targetX;
                 }
             }
+
+            // 更新合成系统状态
+            updateCraft();
         }
 
-        // ======================= 十三、渲染（画到屏幕上） =======================
-
-        let renderList = [];  // 所有要画的东西，先收集再排序
+        // ======================= 十三、渲染 =======================
+        let renderList = [];
 
         function draw() {
-            ctx.imageSmoothingEnabled = false;  // 关闭平滑，保持像素风
-            ctx.fillStyle = '#3b7a3b';
-            ctx.fillRect(0, 0, logicWidth, logicHeight);
+            ctx.imageSmoothingEnabled = false;
+            ctx.fillStyle = '#3b7a3b'; ctx.fillRect(0, 0, logicWidth, logicHeight);
 
-            // 加载页
             if (!isGameStarted) {
-                ctx.fillStyle = '#fff';
-                ctx.font = 'bold 24px monospace';
+                ctx.fillStyle = '#fff'; ctx.font = 'bold 24px monospace';
                 ctx.textAlign = 'center';
                 const pct = Math.round(imagesLoaded / totalImages * 100);
                 ctx.fillText(`Loading... ${pct}%`, logicWidth / 2, logicHeight / 2 - 20);
-
                 const barW = Math.min(320, logicWidth * 0.6), barH = 14;
                 const barX = (logicWidth - barW) / 2, barY = logicHeight / 2 + 10;
-                ctx.fillStyle = 'rgba(0,0,0,0.5)';
-                ctx.fillRect(barX, barY, barW, barH);
-                ctx.fillStyle = '#4CAF50';
-                ctx.fillRect(barX, barY, barW * (imagesLoaded / totalImages), barH);
+                ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(barX, barY, barW, barH);
+                ctx.fillStyle = '#4CAF50'; ctx.fillRect(barX, barY, barW * (imagesLoaded / totalImages), barH);
                 return;
             }
 
-            // 计算摄像机位置（让玩家永远在屏幕中央）
-            const camX = Math.round(playerX - logicWidth / 2);
-            const camY = Math.round(playerY - logicHeight / 2);
+            const camX = Math.round(playerX - logicWidth / 2), camY = Math.round(playerY - logicHeight / 2);
 
-            // 1) 画草地背景
+            // 1) 画背景
             if (bgImg.complete && bgImg.naturalHeight !== 0) {
-                const startX = Math.floor(camX / bgW) * bgW;
-                const startY = Math.floor(camY / bgH) * bgH;
+                const startX = Math.floor(camX / bgW) * bgW, startY = Math.floor(camY / bgH) * bgH;
                 for (let x = startX; x <= camX + logicWidth; x += bgW) {
                     for (let y = startY; y <= camY + logicHeight; y += bgH) {
                         ctx.drawImage(bgImg, x - camX, y - camY, bgW, bgH);
@@ -736,141 +772,135 @@
                 }
             }
 
-            // 2) 收集视野里所有要画的东西
+            // 2) 收集对象
             renderList = [];
-
-            const startCellX = Math.floor(camX / bgW) - 5;
-            const endCellX = Math.floor((camX + logicWidth) / bgW) + 5;
-            const startCellY = Math.floor(camY / bgH) - 12;
-            const endCellY = Math.floor((camY + logicHeight) / bgH) + 12;
+            const startCellX = Math.floor(camX / bgW) - 5, endCellX = Math.floor((camX + logicWidth) / bgW) + 5;
+            const startCellY = Math.floor(camY / bgH) - 12, endCellY = Math.floor((camY + logicHeight) / bgH) + 12;
 
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
-                    // 树
                     const treeInfo = getTreeInfo(cx, cy);
                     if (treeInfo.isCenter) {
-                        renderList.push({
-                            kind: 'tree',
-                            y: cy * bgH + bgH,  // 按"树根底边"参与排序
-                            cx, cy,
-                            trunkHeight: treeInfo.trunkHeight,
-                            topY: cy - treeInfo.trunkHeight,
-                            worldX: cx * bgW + bgW / 2
-                        });
+                        renderList.push({ kind: 'tree', y: cy * bgH + bgH, cx, cy, trunkHeight: treeInfo.trunkHeight, topY: cy - treeInfo.trunkHeight, worldX: cx * bgW + bgW / 2 });
                     }
-
-                    // 地上的物品
                     if (!isTreeOccupied(cx, cy)) {
-                        const worldX = cx * bgW + bgW / 2;
-                        const worldY = cy * bgH + bgH / 2;
+                        const worldX = cx * bgW + bgW / 2, worldY = cy * bgH + bgH / 2;
                         const itemRand = hash(cx, cy, 1);
                         const key = `${worldX},${worldY}`;
+                        let imgToDraw = null, isPlaced = placedItems.has(key);
 
-                        if (placedItems.has(key)) {
-                            const type = placedItems.get(key);
-                            const img = type === 'grass' ? grassImg : pebbleImg;
-                            renderList.push({ kind: 'item', y: worldY, x: worldX, img: img, size: itemTargetSize });
+                        if (isPlaced) {
+                            const t = placedItems.get(key);
+                            imgToDraw = t === 'grass' ? grassImg : (t === 'pebble' ? pebbleImg : (t === 'hey' ? heyImg : (t === 'rope' ? ropeImg : null)));
                         } else if (itemRand < grassChance) {
-                            if (!collectedGrassSet.has(key)) {
-                                renderList.push({ kind: 'item', y: worldY, x: worldX, img: grassImg, size: itemTargetSize });
-                            }
+                            if (!collectedGrassSet.has(key)) imgToDraw = grassImg;
                         } else if (itemRand >= grassChance && itemRand < grassChance + pebbleChance) {
-                            if (!collectedPebbleSet.has(key)) {
-                                renderList.push({ kind: 'item', y: worldY, x: worldX, img: pebbleImg, size: itemTargetSize });
-                            }
+                            if (!collectedPebbleSet.has(key)) imgToDraw = pebbleImg;
+                        }
+                        if (imgToDraw) renderList.push({ kind: 'item', y: worldY, x: worldX, img: imgToDraw, size: itemTargetSize });
+                    }
+                }
+            }
+
+            let currentPlayerImg = playerImg; 
+            const speed = Math.hypot(velocityX, velocityY);
+            if (speed > 0.2) {
+                if (Math.abs(velocityY) > Math.abs(velocityX)) currentPlayerImg = velocityY > 0 ? playerDownImg : playerUpImg;
+                else currentPlayerImg = velocityX > 0 ? playerRightImg : playerLeftImg;
+            }
+            if (!currentPlayerImg || !currentPlayerImg.complete || currentPlayerImg.naturalHeight === 0) currentPlayerImg = playerImg;
+            
+            renderList.push({ kind: 'player', y: playerY + playerH / 2, x: playerX, img: currentPlayerImg, size: playerW });
+
+            // 3) 排序并绘制世界
+            renderList.sort((a, b) => a.y - b.y);
+
+            for (let item of renderList) {
+                if (item.kind === 'player') {
+                    const pX = Math.round(logicWidth / 2 - playerW / 2), pY = Math.round(logicHeight / 2 - playerH / 2);
+                    if (item.img.complete && item.img.naturalHeight !== 0) ctx.drawImage(item.img, pX, pY, playerW, playerH);
+                    else { ctx.fillStyle = '#3498db'; ctx.fillRect(pX, pY, playerW, playerH); ctx.fillStyle = '#000'; ctx.fillRect(pX + 10, pY + 10, 6, 10); ctx.fillRect(pX + 32, pY + 10, 6, 10); }
+                } else if (item.kind === 'tree') {
+                    const { cx, cy, trunkHeight, topY, worldX } = item;
+                    ctx.drawImage(treeStumpImg, worldX - bgW / 2 - camX, cy * bgH + bgH / 2 - bgW / 2 - camY, bgW, bgW);
+                    for (let i = 1; i <= trunkHeight; i++) ctx.drawImage(treeTrunkImg, worldX - bgW / 2 - camX, (cy - i) * bgH + bgH / 2 - bgW / 2 - camY, bgW, bgW);
+                    const leafS = bgW * leafSizeMultiplier;
+                    for (let dx = -2; dx <= 2; dx++) ctx.drawImage(leafImg, (cx + dx) * bgW + bgW / 2 - leafS / 2 - camX, (topY - 1) * bgH + bgH / 2 - leafS / 2 - camY, leafS, leafS);
+                    for (let dx = -2; dx <= 2; dx++) ctx.drawImage(leafImg, (cx + dx) * bgW + bgW / 2 - leafS / 2 - camX, (topY - 2) * bgH + bgH / 2 - leafS / 2 - camY, leafS, leafS);
+                    for (let dx = -1; dx <= 1; dx++) ctx.drawImage(leafImg, (cx + dx) * bgW + bgW / 2 - leafS / 2 - camX, (topY - 3) * bgH + bgH / 2 - leafS / 2 - camY, leafS, leafS);
+                } else {
+                    if (item.img.complete && item.img.naturalHeight !== 0) ctx.drawImage(item.img, item.x - item.size / 2 - camX, item.y - item.size / 2 - camY, item.size, item.size);
+                }
+            }
+
+            // ================== 绘制合成系统 ==================
+            const rect = getCraftRect();
+            
+            ctx.save();
+            // 抖动偏移
+            ctx.translate(craftShakeOffset.x, craftShakeOffset.y);
+
+            // 画外框
+            if (craftImg.complete && craftImg.naturalHeight !== 0) {
+                ctx.drawImage(craftImg, rect.x, rect.y, rect.w, rect.h);
+            } else {
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+            }
+
+            // 画四个槽位里的物品
+            for (let i = 0; i < 4; i++) {
+                const slot = craftSlots[i];
+                if (!slot) continue;
+                const drawSize = craftSlotSize * slot.scale;
+                ctx.drawImage(slot.img, slot.visX - drawSize / 2, slot.visY - drawSize / 2, drawSize, drawSize);
+            }
+
+            // 画合成结果
+            if (craftState === 'result' || craftState === 'collecting') {
+                let drawX = rect.x + rect.w / 2;
+                let drawY = rect.y + rect.h / 2;
+                let drawScale = craftResult.scale;
+
+                if (craftState === 'collecting') {
+                    const t = Math.min(craftAnimTimer / 300, 1);
+                    drawX = craftResult.startX + (craftResult.targetX - craftResult.startX) * t;
+                    drawY = craftResult.startY + (craftResult.targetY - craftResult.startY) * t;
+                    drawScale = 1 - t * 0.5; // 缩小飞走
+                }
+
+                const size = craftSlotSize * 1.5 * drawScale;
+                ctx.drawImage(craftResult.img, drawX - size / 2, drawY - size / 2, size, size);
+                
+                // 绘制数量文字
+                if (craftState === 'result') {
+                    const str = craftResult.count.toString();
+                    let rx = drawX + size / 2 - 2;
+                    for (let j = str.length - 1; j >= 0; j--) {
+                        const d = digitImgs[str[j]];
+                        if (d && d.complete) {
+                            const w = d.width * 1.2, h = d.height * 1.2;
+                            ctx.drawImage(d, rx - w, drawY - size / 2 + 2, w, h);
+                            rx -= (w + 1);
                         }
                     }
                 }
             }
+            ctx.restore();
 
-            // 3) 决定玩家用哪张图（根据移动方向）
-            let currentPlayerImg = playerImg;
-            const speed = Math.hypot(velocityX, velocityY);
-            if (speed > 0.2) {
-                if (Math.abs(velocityY) > Math.abs(velocityX)) {
-                    currentPlayerImg = velocityY > 0 ? playerDownImg : playerUpImg;
-                } else {
-                    currentPlayerImg = velocityX > 0 ? playerRightImg : playerLeftImg;
-                }
-            }
-            if (!currentPlayerImg || !currentPlayerImg.complete || currentPlayerImg.naturalHeight === 0) {
-                currentPlayerImg = playerImg;
-            }
-
-            renderList.push({
-                kind: 'player',
-                y: playerY + playerH / 2,
-                x: playerX,
-                img: currentPlayerImg,
-                size: playerW
-            });
-
-            // 4) 按 Y 坐标排序：越靠下（Y 越大）越后画，就会"盖住"靠上的东西
-            renderList.sort((a, b) => a.y - b.y);
-
-            // 5) 真正开始画
-            for (const item of renderList) {
-                if (item.kind === 'player') {
-                    // 玩家永远画在屏幕正中央
-                    const pX = Math.round(logicWidth / 2 - playerW / 2);
-                    const pY = Math.round(logicHeight / 2 - playerH / 2);
-                    if (item.img.complete && item.img.naturalHeight !== 0) {
-                        ctx.drawImage(item.img, pX, pY, playerW, playerH);
-                    } else {
-                        // 玩家图片加载失败 → 画个蓝色方块顶替
-                        ctx.fillStyle = '#3498db';
-                        ctx.fillRect(pX, pY, playerW, playerH);
-                        ctx.fillStyle = '#000';
-                        ctx.fillRect(pX + 10, pY + 10, 6, 10);
-                        ctx.fillRect(pX + 32, pY + 10, 6, 10);
-                    }
-                } else if (item.kind === 'tree') {
-                    const { cx, cy, trunkHeight, topY, worldX } = item;
-                    // 画树的顺序：先树墩，再树干（从下往上），最后树叶（从下往上，盖住树干）
-                    ctx.drawImage(treeStumpImg, worldX - bgW / 2 - camX, cy * bgH + bgH / 2 - bgW / 2 - camY, bgW, bgW);
-                    for (let i = 1; i <= trunkHeight; i++) {
-                        ctx.drawImage(treeTrunkImg, worldX - bgW / 2 - camX, (cy - i) * bgH + bgH / 2 - bgW / 2 - camY, bgW, bgW);
-                    }
-                    const leafS = bgW * leafSizeMultiplier;
-                    // 树叶分三排画：底排 5 个，中排 5 个，顶排 3 个
-                    for (let dx = -2; dx <= 2; dx++) {
-                        ctx.drawImage(leafImg, (cx + dx) * bgW + bgW / 2 - leafS / 2 - camX, (topY - 1) * bgH + bgH / 2 - leafS / 2 - camY, leafS, leafS);
-                    }
-                    for (let dx = -2; dx <= 2; dx++) {
-                        ctx.drawImage(leafImg, (cx + dx) * bgW + bgW / 2 - leafS / 2 - camX, (topY - 2) * bgH + bgH / 2 - leafS / 2 - camY, leafS, leafS);
-                    }
-                    for (let dx = -1; dx <= 1; dx++) {
-                        ctx.drawImage(leafImg, (cx + dx) * bgW + bgW / 2 - leafS / 2 - camX, (topY - 3) * bgH + bgH / 2 - leafS / 2 - camY, leafS, leafS);
-                    }
-                } else {
-                    // 普通物品（草、石头）
-                    if (item.img.complete && item.img.naturalHeight !== 0) {
-                        ctx.drawImage(item.img, item.x - item.size / 2 - camX, item.y - item.size / 2 - camY, item.size, item.size);
-                    }
-                }
-            }
-
-            // ================== UI 绘制 ==================
+            // ================== UI 绘制（物品栏等） ==================
             const activeItems = getActiveItems();
             if (activeItems.length > 0) {
                 const idx = Math.min(selectedItemIndex, activeItems.length - 1);
                 const totalWidth = activeItems.length * uiItemSize + (activeItems.length - 1) * uiGap;
-                const startX = (logicWidth - totalWidth) / 2;
-                const startY = logicHeight - uiItemSize - uiBottomMargin;
+                const startX = (logicWidth - totalWidth) / 2, startY = logicHeight - uiItemSize - uiBottomMargin;
                 const targetX = startX + idx * (uiItemSize + uiGap);
                 if (electorVisualX === null) electorVisualX = targetX;
 
                 for (let i = 0; i < activeItems.length; i++) {
-                    const item = activeItems[i];
-                    const itemX = startX + i * (uiItemSize + uiGap);
-                    const itemY = startY;
-                    if (item.img.complete && item.img.naturalHeight !== 0) {
-                        ctx.drawImage(item.img, itemX, itemY, uiItemSize, uiItemSize);
-                    }
+                    const item = activeItems[i], itemX = startX + i * (uiItemSize + uiGap), itemY = startY;
+                    if (item.img.complete && item.img.naturalHeight !== 0) ctx.drawImage(item.img, itemX, itemY, uiItemSize, uiItemSize);
 
-                    // 显示数量
-                    const str = item.count.toString();
-                    let currentRightX = itemX + uiItemSize - 2;
+                    const str = item.count.toString(); let currentRightX = itemX + uiItemSize - 2;
                     for (let j = str.length - 1; j >= 0; j--) {
                         const d = digitImgs[str[j]];
                         if (d && d.complete && d.naturalHeight !== 0) {
@@ -880,57 +910,40 @@
                         }
                     }
                 }
-                // 选中框
                 if (electorImg.complete && electorImg.naturalHeight !== 0) {
                     ctx.drawImage(electorImg, Math.round(electorVisualX) - 2, startY - 2, uiItemSize + 4, uiItemSize + 4);
                 }
             }
 
-            // 触摸模式下才画摇杆和放置按钮
+            // 摇杆和按钮
             if (isTouchMode) {
-                const btnX = logicWidth - placeBtnSize - placeBtnMargin;
-                const btnY = logicHeight - placeBtnSize - placeBtnMargin;
+                const btnX = logicWidth - placeBtnSize - placeBtnMargin, btnY = logicHeight - placeBtnSize - placeBtnMargin;
                 const cPI = (isPlaceButtonPressed && pressedPlaceImg.complete) ? pressedPlaceImg : placeImg;
-                if (cPI.complete && cPI.naturalHeight !== 0) {
-                    ctx.drawImage(cPI, btnX, btnY, placeBtnSize, placeBtnSize);
-                }
+                if (cPI.complete && cPI.naturalHeight !== 0) ctx.drawImage(cPI, btnX, btnY, placeBtnSize, placeBtnSize);
 
-                const bCX = joystickBaseMargin + joystickBaseSize / 2;
-                const bCY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
+                const bCX = joystickBaseMargin + joystickBaseSize / 2, bCY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
                 if (joystickBaseImg.complete && joystickBaseImg.naturalHeight !== 0) {
-                    ctx.globalAlpha = 0.6;
-                    ctx.drawImage(joystickBaseImg, bCX - joystickBaseSize / 2, bCY - joystickBaseSize / 2, joystickBaseSize, joystickBaseSize);
-                    ctx.globalAlpha = 1.0;
+                    ctx.globalAlpha = 0.6; ctx.drawImage(joystickBaseImg, bCX - joystickBaseSize/2, bCY - joystickBaseSize/2, joystickBaseSize, joystickBaseSize); ctx.globalAlpha = 1.0;
                 }
                 if (joystickControlImg.complete && joystickControlImg.naturalHeight !== 0) {
-                    ctx.drawImage(joystickControlImg, joystickCurrentX - joystickControlSize / 2, joystickCurrentY - joystickControlSize / 2, joystickControlSize, joystickControlSize);
+                    ctx.drawImage(joystickControlImg, joystickCurrentX - joystickControlSize/2, joystickCurrentY - joystickControlSize/2, joystickControlSize, joystickControlSize);
                 }
             }
 
-            // 如果有图片加载失败，在左上角显示
             if (errors.length > 0) {
                 const boxW = Math.max(300, logicWidth * 0.4);
-                ctx.fillStyle = 'rgba(0,0,0,0.7)';
-                ctx.fillRect(10, 10, boxW, 30 + errors.length * 20);
-                ctx.fillStyle = '#ff4c4c';
-                ctx.font = 'bold 14px monospace';
-                ctx.textAlign = 'left';
+                ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(10, 10, boxW, 30 + errors.length * 20);
+                ctx.fillStyle = '#ff4c4c'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'left';
                 ctx.fillText('缺失的图片:', 15, 30);
-                for (let i = 0; i < errors.length; i++) {
-                    ctx.fillText('- ' + errors[i], 15, 50 + i * 20);
-                }
+                for (let i = 0; i < errors.length; i++) ctx.fillText('- ' + errors[i], 15, 50 + i * 20);
             }
         }
 
-        // ======================= 十四、主循环（固定步长） =======================
-        // 原理：浏览器每一帧都会调用 gameLoop。
-        // 我们不直接用"这一帧过了多久"去移动，而是攒着（accumulator），
-        // 攒够 1/60 秒就跑一次 update()。这样游戏逻辑永远是每秒 60 次。
+        // ======================= 十四、主循环 =======================
         let lastFrameTime = 0, accumulator = 0;
-
         function gameLoop(now) {
             let frameTime = now - lastFrameTime;
-            if (frameTime > MAX_FRAME_TIME) frameTime = MAX_FRAME_TIME;  // 防止切标签页后瞬移
+            if (frameTime > MAX_FRAME_TIME) frameTime = MAX_FRAME_TIME;
             lastFrameTime = now;
             accumulator += frameTime;
 
@@ -938,7 +951,6 @@
                 update();
                 accumulator -= FIXED_DT;
             }
-
             draw();
             requestAnimationFrame(gameLoop);
         }
