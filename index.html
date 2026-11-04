@@ -47,21 +47,24 @@
         const collectedGrassSet = new Set(), collectedPebbleSet = new Set(), placedItems = new Map();
         
         // 扩充库存
-        const inventory = { grass: 0, pebble: 0, hey: 0, rope: 0 };
+        const inventory = { grass: 0, pebble: 0, hay: 0, rope: 0 };
+        // 【新增】记录物品在物品栏里的先后顺序
+        let hotbarOrder = [];
         
         let selectedItemIndex = 0, isPlaceButtonPressed = false, electorVisualX = null;
         let isTouchMode = true, joystickActive = false, joystickTouchId = null;
         let joystickCurrentX = 0, joystickCurrentY = 0;
 
         // 合成系统状态
-        // 0:左上, 1:右上, 2:左下, 3:右下
-        // 每个槽位包含: { type: 'grass'|'hey'|'rope', visX: number, visY: number, scale: number }
         let craftSlots = [null, null, null, null]; 
-        let craftState = 'idle'; // idle(空闲), shaking(失败), crafting(合成中), result(显示结果), collecting(收回结果)
-        let craftResult = null;  // { type: 'hey', count: 4 }
+        let craftState = 'idle'; // idle, shaking, crafting, result, collecting
+        let craftResult = null;  
         let craftAnimTimer = 0;
         let craftShakeOffset = { x: 0, y: 0 };
         let lastEdgeClickTime = 0;
+        
+        // 【新增】正在滑行返回物品栏的单个物品数组
+        let returningItems = [];
 
         // ======================= 三、加载图片 =======================
         const bgImg = new Image(), playerImg = new Image(), playerRightImg = new Image();
@@ -70,9 +73,7 @@
         const placeImg = new Image(), pressedPlaceImg = new Image();
         const joystickBaseImg = new Image(), joystickControlImg = new Image();
         const treeStumpImg = new Image(), treeTrunkImg = new Image(), leafImg = new Image();
-        
-        // 新增加载
-        const craftImg = new Image(), heyImg = new Image(), ropeImg = new Image();
+        const craftImg = new Image(), hayImg = new Image(), ropeImg = new Image();
 
         bgImg.src = './Game/picture/item/grass_land.png';
         playerImg.src = './Game/picture/mob/player.png';
@@ -91,9 +92,9 @@
         joystickBaseImg.src = './Game/picture/ui/joystick.png';
         joystickControlImg.src = './Game/picture/ui/control_stick.png';
         
-        // 新增图片路径 (请确保文件存在)
+        // 注意：图片路径改成了 hay.png
         craftImg.src = './Game/picture/ui/craft.png';
-        heyImg.src = './Game/picture/item/hay.png';
+        hayImg.src = './Game/picture/item/hay.png'; 
         ropeImg.src = './Game/picture/item/rope.png';
 
         const digitImgs = {};
@@ -129,7 +130,7 @@
             bgImg, playerImg, playerRightImg, playerLeftImg, playerUpImg, playerDownImg,
             grassImg, pebbleImg, treeStumpImg, treeTrunkImg, leafImg,
             electorImg, placeImg, pressedPlaceImg, joystickBaseImg, joystickControlImg,
-            craftImg, heyImg, ropeImg // 加入新图片
+            craftImg, hayImg, ropeImg
         ];
         for (let i = 0; i <= 9; i++) allImages.push(digitImgs[i]);
 
@@ -137,7 +138,6 @@
         const totalImages = allImages.length;
 
         function checkLoaded() { imagesLoaded++; if (imagesLoaded >= totalImages) startGame(); }
-
         function trackImage(img) {
             let counted = false;
             const done = (failed) => {
@@ -255,12 +255,22 @@
         }
 
         // ======================= 八、库存与物品 =======================
+        
+        // 【修改】动态维护物品栏顺序
+        function updateHotbarOrder(type, oldCount, newCount) {
+            if (oldCount === 0 && newCount > 0) {
+                if (!hotbarOrder.includes(type)) hotbarOrder.push(type);
+            }
+        }
+
         function getActiveItems() {
+            // 过滤掉数量为0的
+            hotbarOrder = hotbarOrder.filter(t => inventory[t] > 0);
             const items = [];
-            if (inventory.grass > 0) items.push({ type: 'grass', img: grassImg, count: inventory.grass });
-            if (inventory.pebble > 0) items.push({ type: 'pebble', img: pebbleImg, count: inventory.pebble });
-            if (inventory.hey > 0) items.push({ type: 'hey', img: heyImg, count: inventory.hey });
-            if (inventory.rope > 0) items.push({ type: 'rope', img: ropeImg, count: inventory.rope });
+            for (let type of hotbarOrder) {
+                let img = type === 'grass' ? grassImg : type === 'pebble' ? pebbleImg : type === 'hay' ? hayImg : ropeImg;
+                items.push({ type, img, count: inventory[type] });
+            }
             return items;
         }
 
@@ -291,7 +301,6 @@
             else selectedItemIndex = (selectedItemIndex + 1) % activeItems.length;
         }, { passive: true });
 
-        // 修改放置逻辑：去掉 isTreeOccupied，只限制不能在树根中心放
         function tryPlace(targetWorldX, targetWorldY) {
             const activeItems = getActiveItems();
             if (activeItems.length === 0) return;
@@ -308,7 +317,7 @@
             if (itemRand < grassChance) { if (!collectedGrassSet.has(key)) hasNatural = true; }
             else if (itemRand >= grassChance && itemRand < grassChance + pebbleChance) { if (!collectedPebbleSet.has(key)) hasNatural = true; }
 
-            // 树桩中心不能放，但是树桩下面8格可以放了！
+            // 限制：树根中心不能放，下方可以
             if (hasNatural || placedItems.has(key) || isTreeCenter(cx, cy)) return;
 
             placedItems.set(key, selectedType);
@@ -335,15 +344,31 @@
                         if (placedItems.has(key)) {
                             const type = placedItems.get(key);
                             placedItems.delete(key);
-                            if (inventory[type] !== undefined) inventory[type]++;
+                            if (inventory[type] !== undefined) {
+                                const old = inventory[type];
+                                inventory[type]++;
+                                updateHotbarOrder(type, old, inventory[type]);
+                            }
                             return true;
                         }
 
                         const itemRand = hash(cx, cy, 1);
                         if (itemRand < grassChance) {
-                            if (!collectedGrassSet.has(key)) { collectedGrassSet.add(key); inventory.grass++; return true; }
+                            if (!collectedGrassSet.has(key)) { 
+                                collectedGrassSet.add(key); 
+                                const old = inventory.grass;
+                                inventory.grass++; 
+                                updateHotbarOrder('grass', old, inventory.grass);
+                                return true; 
+                            }
                         } else if (itemRand >= grassChance && itemRand < grassChance + pebbleChance) {
-                            if (!collectedPebbleSet.has(key)) { collectedPebbleSet.add(key); inventory.pebble++; return true; }
+                            if (!collectedPebbleSet.has(key)) { 
+                                collectedPebbleSet.add(key); 
+                                const old = inventory.pebble;
+                                inventory.pebble++; 
+                                updateHotbarOrder('pebble', old, inventory.pebble);
+                                return true; 
+                            }
                         }
                     }
                 }
@@ -353,14 +378,13 @@
 
         // ======================= 九、合成系统逻辑 =======================
 
-        // 获取合成框的屏幕坐标
         function getCraftRect() {
             const cx = logicWidth - craftSize - craftMargin;
             const cy = logicHeight / 2 - craftSize / 2;
             return { x: cx, y: cy, w: craftSize, h: craftSize };
         }
 
-        // 获取物品栏中选中物品的屏幕坐标（用于飞入动画的起点）
+        // 获取物品栏中选中物品的屏幕坐标
         function getSelectedItemScreenPos() {
             const activeItems = getActiveItems();
             if (activeItems.length === 0) return { x: logicWidth / 2, y: logicHeight };
@@ -372,72 +396,111 @@
             };
         }
 
-        // 点击合成区域
         function handleCraftClick(x, y) {
             const rect = getCraftRect();
             const isInside = x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
 
-            // 1. 处于 result 状态，点击收取
+            // 1. 结果状态下点击收取
             if (craftState === 'result') {
                 if (isInside) {
-                    // 飞向物品栏
                     craftState = 'collecting';
                     craftAnimTimer = 0;
-                    const targetPos = getSelectedItemScreenPos();
+                    
+                    // 【修复】预测收取后降落的实际坐标
+                    let targetIndex = hotbarOrder.indexOf(craftResult.type);
+                    let tempOrder = [...hotbarOrder];
+                    if (targetIndex === -1) {
+                        tempOrder.push(craftResult.type);
+                        targetIndex = tempOrder.length - 1;
+                    }
+                    const activeCount = tempOrder.length;
+                    const totalWidth = activeCount * uiItemSize + (activeCount - 1) * uiGap;
+                    const startX = (logicWidth - totalWidth) / 2;
+                    
                     craftResult.startX = rect.x + rect.w / 2;
                     craftResult.startY = rect.y + rect.h / 2;
-                    craftResult.targetX = targetPos.x;
-                    craftResult.targetY = targetPos.y;
+                    craftResult.targetX = startX + targetIndex * (uiItemSize + uiGap) + uiItemSize / 2;
+                    craftResult.targetY = logicHeight - uiItemSize - uiBottomMargin + uiItemSize / 2;
                     return true;
                 }
                 return false;
             }
 
-            // 2. 只有 idle 状态才能放入物品/双击合成
-            if (craftState !== 'idle') return false;
+            // 2. 空闲状态
+            if (craftState === 'idle') {
+                // 【新增功能】点击已放入的单个物品退回
+                for (let i = 0; i < 4; i++) {
+                    const slot = craftSlots[i];
+                    if (!slot) continue;
+                    if (Math.hypot(x - slot.visX, y - slot.visY) < 30) {
+                        craftSlots[i] = null;
+                        
+                        const old = inventory[slot.type];
+                        inventory[slot.type]++;
+                        updateHotbarOrder(slot.type, old, inventory[slot.type]);
+                        
+                        // 计算退回到物品栏的目标位置
+                        let targetIndex = hotbarOrder.indexOf(slot.type);
+                        let tempOrder = [...hotbarOrder];
+                        if (targetIndex === -1) {
+                            tempOrder.push(slot.type);
+                            targetIndex = tempOrder.length - 1;
+                        }
+                        const activeCount = tempOrder.length;
+                        const totalWidth = activeCount * uiItemSize + (activeCount - 1) * uiGap;
+                        const startX = (logicWidth - totalWidth) / 2;
 
-            if (isInside) {
-                // 判断是不是双击边缘
-                const halfW = rect.w / 2, halfH = rect.h / 2;
-                const localX = x - rect.x, localY = y - rect.y;
-                // 判断是否在边缘（距离四条边小于15像素，或者判断角落以外的环形区域）
-                const isEdge = localX < 15 || localX > rect.w - 15 || localY < 15 || localY > rect.h - 15;
-                
-                if (isEdge) {
-                    const now = performance.now();
-                    if (now - lastEdgeClickTime < 350) { // 350ms内双击
-                        attemptCraft();
-                        lastEdgeClickTime = 0;
+                        returningItems.push({
+                            img: slot.img,
+                            startX: slot.visX,
+                            startY: slot.visY,
+                            targetX: startX + targetIndex * (uiItemSize + uiGap) + uiItemSize / 2,
+                            targetY: logicHeight - uiItemSize - uiBottomMargin + uiItemSize / 2,
+                            timer: 0
+                        });
                         return true;
                     }
-                    lastEdgeClickTime = now;
                 }
 
-                // 尝试放入物品
-                if (x < rect.x + halfW && y < rect.y + halfH) return tryPutInSlot(0, x, y); // 左上
-                if (x >= rect.x + halfW && y < rect.y + halfH) return tryPutInSlot(1, x, y); // 右上
-                if (x < rect.x + halfW && y >= rect.y + halfH) return tryPutInSlot(2, x, y); // 左下
-                if (x >= rect.x + halfW && y >= rect.y + halfH) return tryPutInSlot(3, x, y); // 右下
-                
-                return true; // 点到了框内空白处，拦截
+                if (isInside) {
+                    // 双击边缘
+                    const halfW = rect.w / 2, halfH = rect.h / 2;
+                    const localX = x - rect.x, localY = y - rect.y;
+                    const isEdge = localX < 15 || localX > rect.w - 15 || localY < 15 || localY > rect.h - 15;
+                    
+                    if (isEdge) {
+                        const now = performance.now();
+                        if (now - lastEdgeClickTime < 350) {
+                            attemptCraft();
+                            lastEdgeClickTime = 0;
+                            return true;
+                        }
+                        lastEdgeClickTime = now;
+                    }
+
+                    // 放入物品
+                    if (x < rect.x + halfW && y < rect.y + halfH) return tryPutInSlot(0);
+                    if (x >= rect.x + halfW && y < rect.y + halfH) return tryPutInSlot(1);
+                    if (x < rect.x + halfW && y >= rect.y + halfH) return tryPutInSlot(2);
+                    if (x >= rect.x + halfW && y >= rect.y + halfH) return tryPutInSlot(3);
+                    return true;
+                }
             }
             return false;
         }
 
-        function tryPutInSlot(index, clickX, clickY) {
-            if (craftSlots[index] !== null) return true; // 该位置已有物品
+        function tryPutInSlot(index) {
+            if (craftSlots[index] !== null) return true;
             const activeItems = getActiveItems();
             if (activeItems.length === 0) return true;
             
             const item = activeItems[selectedItemIndex];
-            
-            // 扣除库存
             inventory[item.type]--;
+            
             if (inventory[item.type] === 0 && selectedItemIndex >= getActiveItems().length) {
                 selectedItemIndex = Math.max(0, getActiveItems().length - 1);
             }
 
-            // 计算飞入动画的起点
             const startPos = getSelectedItemScreenPos();
 
             craftSlots[index] = {
@@ -451,22 +514,20 @@
         }
 
         function attemptCraft() {
-            // 检查空位
             let count = 0;
             const types = craftSlots.map(s => s ? s.type : null);
             for (let i = 0; i < 4; i++) if (types[i]) count++;
-
-            if (count === 0) return; // 什么都没放
+            if (count === 0) return;
 
             // 配方1：4个草 -> 4个干草
             if (count === 4 && types[0] === 'grass' && types[1] === 'grass' && types[2] === 'grass' && types[3] === 'grass') {
-                craftResult = { type: 'hey', count: 4, img: heyImg };
+                craftResult = { type: 'hay', count: 4, img: hayImg };
                 startCraftingAnim();
                 return;
             }
 
             // 配方2：左上、右上、左下是干草 -> 1个绳子
-            if (types[0] === 'hey' && types[1] === 'hey' && types[2] === 'hey' && types[3] === null) {
+            if (types[0] === 'hay' && types[1] === 'hay' && types[2] === 'hay' && types[3] === null) {
                 craftResult = { type: 'rope', count: 1, img: ropeImg };
                 startCraftingAnim();
                 return;
@@ -484,21 +545,29 @@
 
         function updateCraft() {
             const rect = getCraftRect();
-            
+
+            // 处理退回物品的飞行动画
+            for (let i = returningItems.length - 1; i >= 0; i--) {
+                const item = returningItems[i];
+                item.timer += FIXED_DT;
+                const t = Math.min(item.timer / 300, 1);
+                const easeT = 1 - Math.pow(1 - t, 2);
+                item.currentX = item.startX + (item.targetX - item.startX) * easeT;
+                item.currentY = item.startY + (item.targetY - item.startY) * easeT;
+                if (t >= 1) returningItems.splice(i, 1);
+            }
+
             // 处理物品飞入四个角
             for (let i = 0; i < 4; i++) {
                 const slot = craftSlots[i];
-                if (!slot) continue;
-                if (craftState === 'crafting') continue; // 合成中由下面的逻辑接管
+                if (!slot || craftState === 'crafting') continue;
 
-                // 目标位置 (居中于四个象限)
                 let targetX = rect.x + craftSize * 0.25;
                 let targetY = rect.y + craftSize * 0.25;
                 if (i === 1) targetX = rect.x + craftSize * 0.75;
                 if (i === 2) targetY = rect.y + craftSize * 0.75;
                 if (i === 3) { targetX = rect.x + craftSize * 0.75; targetY = rect.y + craftSize * 0.75; }
 
-                // 平滑插值 (Lerp)
                 slot.visX += (targetX - slot.visX) * 0.2;
                 slot.visY += (targetY - slot.visY) * 0.2;
                 slot.scale += (1 - slot.scale) * 0.2;
@@ -516,38 +585,37 @@
             } 
             else if (craftState === 'crafting') {
                 craftAnimTimer += FIXED_DT;
-                // 将所有物品吸向中心并缩小
+                const t = Math.min(craftAnimTimer / 350, 1);
                 const centerX = rect.x + rect.w / 2;
                 const centerY = rect.y + rect.h / 2;
                 
                 for (let i = 0; i < 4; i++) {
                     const slot = craftSlots[i];
                     if (!slot) continue;
-                    slot.visX += (centerX - slot.visX) * 0.25;
-                    slot.visY += (centerY - slot.visY) * 0.25;
-                    slot.scale -= 0.08;
+                    slot.visX += (centerX - slot.visX) * 0.3;
+                    slot.visY += (centerY - slot.visY) * 0.3;
+                    slot.scale = 1 - t; // 【修复】确保缩放到0就消失
                 }
 
-                if (craftAnimTimer > 500) {
+                if (craftAnimTimer >= 350) {
                     craftSlots = [null, null, null, null];
                     craftState = 'result';
                     craftAnimTimer = 0;
-                    // 结果从0放大到1
-                    craftResult.scale = 0;
+                    craftResult.scale = 0.1; // 从小开始放大
                 }
             } 
             else if (craftState === 'result') {
-                // 结果弹出现象
                 if (craftResult.scale < 1) {
-                    craftResult.scale += 0.1;
+                    craftResult.scale += 0.15;
                     if (craftResult.scale > 1) craftResult.scale = 1;
                 }
             } 
             else if (craftState === 'collecting') {
                 craftAnimTimer += FIXED_DT;
                 if (craftAnimTimer > 300) {
-                    // 结束，入库
+                    const old = inventory[craftResult.type];
                     inventory[craftResult.type] += craftResult.count;
+                    updateHotbarOrder(craftResult.type, old, inventory[craftResult.type]);
                     craftResult = null;
                     craftState = 'idle';
                 }
@@ -579,9 +647,7 @@
         canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             const { x, y } = getLogicCoords(e.clientX, e.clientY);
-            
-            if (handleCraftClick(x, y)) return; // 优先处理合成
-
+            if (handleCraftClick(x, y)) return;
             const camX = Math.round(playerX - logicWidth / 2);
             const camY = Math.round(playerY - logicHeight / 2);
             tryPlace(x + camX, y + camY);
@@ -591,7 +657,6 @@
             if (e.button === 0) {
                 isTouchMode = false;
                 const { x, y } = getLogicCoords(e.clientX, e.clientY);
-                
                 if (handleCraftClick(x, y)) return;
 
                 const btnX = logicWidth - placeBtnSize - placeBtnMargin;
@@ -616,7 +681,6 @@
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const touch = e.changedTouches[i];
                 const { x, y } = getLogicCoords(touch.clientX, touch.clientY);
-                
                 if (handleCraftClick(x, y)) continue;
 
                 const baseCenterX = joystickBaseMargin + joystickBaseSize / 2;
@@ -737,7 +801,6 @@
                 }
             }
 
-            // 更新合成系统状态
             updateCraft();
         }
 
@@ -791,7 +854,7 @@
 
                         if (isPlaced) {
                             const t = placedItems.get(key);
-                            imgToDraw = t === 'grass' ? grassImg : (t === 'pebble' ? pebbleImg : (t === 'hey' ? heyImg : (t === 'rope' ? ropeImg : null)));
+                            imgToDraw = t === 'grass' ? grassImg : (t === 'pebble' ? pebbleImg : (t === 'hay' ? hayImg : (t === 'rope' ? ropeImg : null)));
                         } else if (itemRand < grassChance) {
                             if (!collectedGrassSet.has(key)) imgToDraw = grassImg;
                         } else if (itemRand >= grassChance && itemRand < grassChance + pebbleChance) {
@@ -837,10 +900,8 @@
             const rect = getCraftRect();
             
             ctx.save();
-            // 抖动偏移
             ctx.translate(craftShakeOffset.x, craftShakeOffset.y);
 
-            // 画外框
             if (craftImg.complete && craftImg.naturalHeight !== 0) {
                 ctx.drawImage(craftImg, rect.x, rect.y, rect.w, rect.h);
             } else {
@@ -852,7 +913,18 @@
                 const slot = craftSlots[i];
                 if (!slot) continue;
                 const drawSize = craftSlotSize * slot.scale;
-                ctx.drawImage(slot.img, slot.visX - drawSize / 2, slot.visY - drawSize / 2, drawSize, drawSize);
+                if (drawSize > 0) {
+                    ctx.drawImage(slot.img, slot.visX - drawSize / 2, slot.visY - drawSize / 2, drawSize, drawSize);
+                }
+            }
+
+            // 绘制正在退回物品栏的散件
+            for (const item of returningItems) {
+                if (item.currentX !== undefined) {
+                    const t = Math.min(item.timer / 300, 1);
+                    const size = craftSlotSize * (1 - t * 0.5);
+                    ctx.drawImage(item.img, item.currentX - size / 2, item.currentY - size / 2, size, size);
+                }
             }
 
             // 画合成结果
@@ -863,22 +935,26 @@
 
                 if (craftState === 'collecting') {
                     const t = Math.min(craftAnimTimer / 300, 1);
-                    drawX = craftResult.startX + (craftResult.targetX - craftResult.startX) * t;
-                    drawY = craftResult.startY + (craftResult.targetY - craftResult.startY) * t;
-                    drawScale = 1 - t * 0.5; // 缩小飞走
+                    const easeT = 1 - Math.pow(1 - t, 2);
+                    drawX = craftResult.startX + (craftResult.targetX - craftResult.startX) * easeT;
+                    drawY = craftResult.startY + (craftResult.targetY - craftResult.startY) * easeT;
+                    drawScale = 1 - t * 0.5;
                 }
 
-                const size = craftSlotSize * 1.5 * drawScale;
-                ctx.drawImage(craftResult.img, drawX - size / 2, drawY - size / 2, size, size);
+                // 【修复】物品稍微调小
+                const size = craftSlotSize * 1.2 * drawScale; 
+                if (size > 0) {
+                    ctx.drawImage(craftResult.img, drawX - size / 2, drawY - size / 2, size, size);
+                }
                 
-                // 绘制数量文字
+                // 【修复】数字调大
                 if (craftState === 'result') {
                     const str = craftResult.count.toString();
                     let rx = drawX + size / 2 - 2;
                     for (let j = str.length - 1; j >= 0; j--) {
                         const d = digitImgs[str[j]];
                         if (d && d.complete) {
-                            const w = d.width * 1.2, h = d.height * 1.2;
+                            const w = d.width * 1.6, h = d.height * 1.6;
                             ctx.drawImage(d, rx - w, drawY - size / 2 + 2, w, h);
                             rx -= (w + 1);
                         }
