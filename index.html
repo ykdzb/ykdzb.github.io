@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Alpha 1.0 - 合成版</title>
+    <title>Alpha 1.0 - 砍树生存版</title>
     <style>
         body, html {
             margin: 0; padding: 0; width: 100%; height: 100%;
@@ -30,14 +30,13 @@
 
         const maxSpeed = 5.5, maxRadius = 250, accelerationSmooth = 0.15, friction = 0.94;
         
-        // UI 基础配置 (会被 UI_SCALE 动态缩放)
+        // UI 基础配置
         let uiItemSize = 38, uiGap = 9, uiBottomMargin = 12, placeBtnSize = 38, placeBtnMargin = 18;
         let joystickBaseSize = 102, joystickBaseMargin = 30, joystickControlSize = 51;
         let UI_SCALE = 1.0;
-
         const electorSlideSpeed = 0.2;
         
-        // 合成 UI 配置 (固定不缩放)
+        // 合成 UI 配置
         const craftSize = 102, craftMargin = 30;
         const craftSlotSize = 40; 
 
@@ -48,9 +47,10 @@
         // ======================= 二、游戏状态变量 =======================
         const collectedGrassSet = new Set(), collectedPebbleSet = new Set(), collectedBranchSet = new Set();
         const placedItems = new Map();
+        const choppedTrees = new Set(); // 记录被砍倒的树，key = "cx,cy"
         
         // 扩充库存
-        const inventory = { grass: 0, pebble: 0, hay: 0, rope: 0, gravel: 0, branch: 0 };
+        const inventory = { grass: 0, pebble: 0, hay: 0, rope: 0, gravel: 0, branch: 0, axe: 0, wood: 0 };
         let hotbarOrder = [];
         
         let selectedItemIndex = 0, isPlaceButtonPressed = false, electorVisualX = null;
@@ -59,15 +59,18 @@
 
         // 合成系统状态
         let craftSlots = [null, null, null, null]; 
-        let craftState = 'idle'; // idle, shaking, crafting, result, collecting
+        let craftState = 'idle'; 
         let craftResult = null;  
         let craftAnimTimer = 0;
         let craftShakeOffset = { x: 0, y: 0 };
         let lastEdgeClickTime = 0;
         let returningItems = [];
 
-        // 不可放置的物品黑名单
-        const unplaceableItems = ['hay', 'rope', 'gravel'];
+        // 砍树系统状态
+        let choppingTarget = null; // { cx, cy, timer }
+        let isMouseDown = false;   // 用于PC端检测是否松手
+
+        const unplaceableItems = ['hay', 'rope', 'gravel', 'axe']; // 斧头、干草等不可放置
 
         // ======================= 三、加载图片 =======================
         const bgImg = new Image(), playerImg = new Image(), playerRightImg = new Image();
@@ -77,6 +80,15 @@
         const joystickBaseImg = new Image(), joystickControlImg = new Image();
         const treeStumpImg = new Image(), treeTrunkImg = new Image(), leafImg = new Image();
         const craftImg = new Image(), hayImg = new Image(), ropeImg = new Image(), gravelImg = new Image(), branchImg = new Image();
+        const axeImg = new Image();
+        
+        // 破损的树干图片
+        const brokenTrunkImgs = [];
+        for (let i = 1; i <= 4; i++) {
+            const img = new Image();
+            img.src = `./Game/picture/item/broken_tree_trunk${i}.png`;
+            brokenTrunkImgs.push(img);
+        }
 
         bgImg.src = './Game/picture/item/grass_land.png';
         playerImg.src = './Game/picture/mob/player.png';
@@ -99,7 +111,8 @@
         hayImg.src = './Game/picture/item/hay.png'; 
         ropeImg.src = './Game/picture/item/rope.png';
         gravelImg.src = './Game/picture/item/gravel.png';
-        branchImg.src = './Game/picture/item/branch.png'; // 新增树枝
+        branchImg.src = './Game/picture/item/branch.png'; 
+        axeImg.src = './Game/picture/item/axe.png';
 
         const digitImgs = {};
         for (let i = 0; i <= 9; i++) {
@@ -133,7 +146,8 @@
             bgImg, playerImg, playerRightImg, playerLeftImg, playerUpImg, playerDownImg,
             grassImg, pebbleImg, treeStumpImg, treeTrunkImg, leafImg,
             electorImg, placeImg, pressedPlaceImg, joystickBaseImg, joystickControlImg,
-            craftImg, hayImg, ropeImg, gravelImg, branchImg // 加入树枝
+            craftImg, hayImg, ropeImg, gravelImg, branchImg, axeImg,
+            ...brokenTrunkImgs
         ];
         for (let i = 0; i <= 9; i++) allImages.push(digitImgs[i]);
 
@@ -189,27 +203,13 @@
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             }
 
-            if (logicWidth > logicHeight) {
-                UI_SCALE = 1.25;
-            } else {
-                UI_SCALE = 1.0;
-            }
-
-            // 检测手机端，UI 缩小一点
+            if (logicWidth > logicHeight) UI_SCALE = 1.25; else UI_SCALE = 1.0;
             const isMobilePhone = /Android.*Mobile|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-            if (isMobilePhone) {
-                UI_SCALE *= 0.85; // 缩小 15%
-            }
+            if (isMobilePhone) UI_SCALE *= 0.85;
 
-            // 重新应用尺寸
-            uiItemSize = 38 * UI_SCALE;
-            uiGap = 9 * UI_SCALE;
-            uiBottomMargin = 12 * UI_SCALE;
-            placeBtnSize = 38 * UI_SCALE;
-            placeBtnMargin = 18 * UI_SCALE;
-            joystickBaseSize = 102 * UI_SCALE;
-            joystickBaseMargin = 30 * UI_SCALE;
-            joystickControlSize = 51 * UI_SCALE;
+            uiItemSize = 38 * UI_SCALE; uiGap = 9 * UI_SCALE; uiBottomMargin = 12 * UI_SCALE;
+            placeBtnSize = 38 * UI_SCALE; placeBtnMargin = 18 * UI_SCALE;
+            joystickBaseSize = 102 * UI_SCALE; joystickBaseMargin = 30 * UI_SCALE; joystickControlSize = 51 * UI_SCALE;
 
             joystickCurrentX = joystickBaseMargin + joystickBaseSize / 2;
             joystickCurrentY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
@@ -281,19 +281,14 @@
             return occupied;
         }
 
-        // 判断该格是否为自然生成的树枝
         function checkIsBranch(cx, cy) {
             for (let dx = -3; dx <= 3; dx++) {
                 for (let dy = -3; dy <= 3; dy++) {
-                    if (dx * dx + dy * dy <= 9) { // 3格半径内
+                    if (dx * dx + dy * dy <= 9) { 
                         const tx = cx + dx, ty = cy + dy;
                         if (isTreeCenter(tx, ty)) {
-                            // 这棵树有1/4概率产生树枝
                             if (hash(tx, ty, 201) < 0.25) {
-                                // 在这个树枝周围散落的具体位置判定
-                                if (hash(cx, cy, 202) < 0.15) {
-                                    return true;
-                                }
+                                if (hash(cx, cy, 202) < 0.15) return true;
                             }
                         }
                     }
@@ -309,17 +304,16 @@
             }
         }
 
-        // UI绘制缩放系数：统一处理干草、绳子、碎石、树枝，让它们在 UI 里看起来小一点
         function getItemScale(type) {
             if (type === 'grass' || type === 'pebble') return 1.0;
-            return 0.75; // 以后加的所有物品（特殊除外）都默认乘这个系数
+            return 0.75; 
         }
 
         function getActiveItems() {
             hotbarOrder = hotbarOrder.filter(t => inventory[t] > 0);
             const items = [];
             for (let type of hotbarOrder) {
-                let img = type === 'grass' ? grassImg : type === 'pebble' ? pebbleImg : type === 'hay' ? hayImg : type === 'rope' ? ropeImg : type === 'gravel' ? gravelImg : branchImg;
+                let img = type === 'grass' ? grassImg : type === 'pebble' ? pebbleImg : type === 'hay' ? hayImg : type === 'rope' ? ropeImg : type === 'gravel' ? gravelImg : type === 'branch' ? branchImg : type === 'axe' ? axeImg : type === 'wood' ? treeTrunkImg : null;
                 items.push({ type, img, count: inventory[type] });
             }
             return items;
@@ -338,6 +332,7 @@
                     const itemX = startX + i * (uiItemSize + uiGap);
                     if (logicX >= itemX && logicX <= itemX + uiItemSize && logicY >= startY && logicY <= startY + uiItemSize) {
                         selectedItemIndex = i; 
+                        choppingTarget = null; // 切换物品中断砍树
                         return true;
                     }
                 }
@@ -350,6 +345,7 @@
             if (activeItems.length <= 1) return;
             if (e.deltaY < 0) selectedItemIndex = (selectedItemIndex - 1 + activeItems.length) % activeItems.length;
             else selectedItemIndex = (selectedItemIndex + 1) % activeItems.length;
+            choppingTarget = null;
         }, { passive: true });
 
         function tryPlace(targetWorldX, targetWorldY) {
@@ -357,7 +353,6 @@
             if (activeItems.length === 0) return;
             const selectedType = activeItems[selectedItemIndex].type;
 
-            // 【新增】不可放置判定
             if (unplaceableItems.includes(selectedType)) return;
 
             const cx = Math.floor(targetWorldX / bgW);
@@ -381,6 +376,39 @@
         function tryCollect(logicX, logicY) {
             const camX = Math.round(playerX - logicWidth / 2), camY = Math.round(playerY - logicHeight / 2);
             const clickWorldX = logicX + camX, clickWorldY = logicY + camY;
+            
+            // --- 砍树逻辑优先 ---
+            const activeItems = getActiveItems();
+            const selectedType = activeItems.length > 0 ? activeItems[selectedItemIndex].type : null;
+            
+            if (selectedType === 'axe') {
+                // 检测是否点在了树干上（树根往上第一节）
+                const checkCX = Math.floor(clickWorldX / bgW);
+                const checkCY = Math.floor(clickWorldY / bgH);
+                
+                // 遍历附近找树
+                for (let cx = checkCX - 1; cx <= checkCX + 1; cx++) {
+                    for (let cy = checkCY - 1; cy <= checkCY + 1; cy++) {
+                        if (isTreeCenter(cx, cy) && !choppedTrees.has(`${cx},${cy}`)) {
+                            // 树干中心位置
+                            const trunkX = cx * bgW + bgW / 2;
+                            const trunkY = cy * bgH; // 树根上方
+                            
+                            // 点击判定范围
+                            if (Math.abs(clickWorldX - trunkX) < bgW / 2 && Math.abs(clickWorldY - trunkY) < bgH) {
+                                // 距离判定
+                                const dist = Math.hypot(playerX - trunkX, playerY - trunkY);
+                                if (dist < 120) {
+                                    choppingTarget = { cx, cy, timer: 0 };
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- 捡东西逻辑 ---
             const startCellX = Math.floor((camX - itemTargetSize) / bgW) - 1;
             const endCellX = Math.floor((camX + logicWidth + itemTargetSize) / bgW) + 1;
             const startCellY = Math.floor((camY - itemTargetSize) / bgH) - 1;
@@ -437,7 +465,6 @@
         }
 
         // ======================= 九、合成系统逻辑 =======================
-
         function getCraftRect() {
             const cx = logicWidth - craftSize - craftMargin;
             const cy = logicHeight / 2 - craftSize / 2;
@@ -504,10 +531,8 @@
                         const startX = (logicWidth - totalWidth) / 2;
 
                         returningItems.push({
-                            type: slot.type,
-                            img: slot.img,
-                            startX: slot.visX,
-                            startY: slot.visY,
+                            type: slot.type, img: slot.img,
+                            startX: slot.visX, startY: slot.visY,
                             targetX: startX + targetIndex * (uiItemSize + uiGap) + uiItemSize / 2,
                             targetY: logicHeight - uiItemSize - uiBottomMargin + uiItemSize / 2,
                             timer: 0
@@ -554,14 +579,7 @@
             }
 
             const startPos = getSelectedItemScreenPos();
-
-            craftSlots[index] = {
-                type: item.type,
-                img: item.img,
-                visX: startPos.x,
-                visY: startPos.y,
-                scale: 1
-            };
+            craftSlots[index] = { type: item.type, img: item.img, visX: startPos.x, visY: startPos.y, scale: 1 };
             return true;
         }
 
@@ -574,22 +592,25 @@
             // 4个草 -> 4个干草
             if (count === 4 && types[0] === 'grass' && types[1] === 'grass' && types[2] === 'grass' && types[3] === 'grass') {
                 craftResult = { type: 'hay', count: 4, img: hayImg };
-                startCraftingAnim();
-                return;
+                startCraftingAnim(); return;
             }
 
-            // 左上、右上、左下是干草 -> 1个绳子
+            // 干草 -> 绳子
             if (types[0] === 'hay' && types[1] === 'hay' && types[2] === 'hay' && types[3] === null) {
                 craftResult = { type: 'rope', count: 1, img: ropeImg };
-                startCraftingAnim();
-                return;
+                startCraftingAnim(); return;
             }
             
-            // 任意两个石头 -> 2个砂砾
+            // 石头 -> 砂砾
             if (count === 2 && types.filter(t => t === 'pebble').length === 2) {
                 craftResult = { type: 'gravel', count: 2, img: gravelImg };
-                startCraftingAnim();
-                return;
+                startCraftingAnim(); return;
+            }
+
+            // 【新配方】左上木棍 + 右上碎石 + 左下绳子 -> 斧头
+            if (types[0] === 'branch' && types[1] === 'gravel' && types[2] === 'rope' && types[3] === null) {
+                craftResult = { type: 'axe', count: 1, img: axeImg };
+                startCraftingAnim(); return;
             }
 
             craftState = 'shaking';
@@ -635,15 +656,13 @@
                     craftShakeOffset.x = (Math.random() - 0.5) * 10;
                     craftShakeOffset.y = (Math.random() - 0.5) * 10;
                 } else {
-                    craftState = 'idle';
-                    craftShakeOffset = { x: 0, y: 0 };
+                    craftState = 'idle'; craftShakeOffset = { x: 0, y: 0 };
                 }
             } 
             else if (craftState === 'crafting') {
                 craftAnimTimer += FIXED_DT;
                 const t = Math.min(craftAnimTimer / 350, 1);
-                const centerX = rect.x + rect.w / 2;
-                const centerY = rect.y + rect.h / 2;
+                const centerX = rect.x + rect.w / 2, centerY = rect.y + rect.h / 2;
                 
                 for (let i = 0; i < 4; i++) {
                     const slot = craftSlots[i];
@@ -655,8 +674,7 @@
 
                 if (craftAnimTimer >= 350) {
                     craftSlots = [null, null, null, null];
-                    craftState = 'result';
-                    craftAnimTimer = 0;
+                    craftState = 'result'; craftAnimTimer = 0;
                     craftResult.scale = 0.1; 
                 }
             } 
@@ -672,8 +690,7 @@
                     const old = inventory[craftResult.type];
                     inventory[craftResult.type] += craftResult.count;
                     updateHotbarOrder(craftResult.type, old, inventory[craftResult.type]);
-                    craftResult = null;
-                    craftState = 'idle';
+                    craftResult = null; craftState = 'idle';
                 }
             }
         }
@@ -691,6 +708,7 @@
             for (let cx = minCX; cx <= maxCX; cx++) {
                 for (let cy = minCY; cy <= maxCY; cy++) {
                     if (!isTreeCenter(cx, cy)) continue;
+                    if (choppedTrees.has(`${cx},${cy}`)) continue; // 砍倒的树不挡路
                     const tL = cx * bgW + inset, tR = (cx + 1) * bgW - inset;
                     const tT = cy * bgH + inset, tB = (cy + 1) * bgH - inset;
                     if (right > tL && left < tR && bottom > tT && top < tB) return true;
@@ -712,6 +730,7 @@
         canvas.addEventListener('mousedown', (e) => { 
             if (e.button === 0) {
                 isTouchMode = false;
+                isMouseDown = true; // 记录鼠标按下
                 const { x, y } = getLogicCoords(e.clientX, e.clientY);
                 if (handleCraftClick(x, y)) return;
 
@@ -725,11 +744,18 @@
             }
         });
         
-        window.addEventListener('mouseup', (e) => { if (e.button === 0) { isPlaceButtonPressed = false; } });
+        window.addEventListener('mouseup', (e) => { 
+            if (e.button === 0) { 
+                isPlaceButtonPressed = false; 
+                isMouseDown = false;
+                choppingTarget = null; // 松手中断砍树
+            } 
+        });
 
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
             isTouchMode = true;
+            isMouseDown = true;
             for (let i = 0; i < e.changedTouches.length; i++) {
                 const touch = e.changedTouches[i];
                 const { x, y } = getLogicCoords(touch.clientX, touch.clientY);
@@ -765,6 +791,8 @@
                     const dist = Math.hypot(dx, dy), maxDist = joystickBaseSize / 2; 
                     if (dist > maxDist) { dx = (dx / dist) * maxDist; dy = (dy / dist) * maxDist; }
                     joystickCurrentX = baseCenterX + dx; joystickCurrentY = baseCenterY + dy;
+                    // 移动中断砍树
+                    if (Math.hypot(dx, dy) > 10) choppingTarget = null;
                 }
             }
         }, { passive: false });
@@ -780,6 +808,8 @@
                 }
             }
             isPlaceButtonPressed = false; 
+            isMouseDown = false;
+            choppingTarget = null; // 松手中断
         }, { passive: false });
         
         window.addEventListener('touchcancel', () => { 
@@ -787,6 +817,8 @@
             joystickCurrentX = joystickBaseMargin + joystickBaseSize / 2;
             joystickCurrentY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
             isPlaceButtonPressed = false; 
+            isMouseDown = false;
+            choppingTarget = null;
         });
 
         // ======================= 十二、逻辑更新 =======================
@@ -801,6 +833,7 @@
             if (kdx !== 0 || kdy !== 0) {
                 isMoving = true; const length = Math.hypot(kdx, kdy);
                 targetVx = (kdx / length) * maxSpeed; targetVy = (kdy / length) * maxSpeed;
+                choppingTarget = null; // 键盘移动中断砍树
             } else if (joystickActive) {
                 isMoving = true; const bX = joystickBaseMargin + joystickBaseSize / 2;
                 const bY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
@@ -843,12 +876,41 @@
                 }
             }
 
+            // --- 砍树进度更新 ---
+            if (choppingTarget) {
+                choppingTarget.timer += FIXED_DT;
+                if (choppingTarget.timer >= 5000) {
+                    // 砍断！
+                    const cx = choppingTarget.cx, cy = choppingTarget.cy;
+                    const treeInfo = getTreeInfo(cx, cy);
+                    
+                    // 标记树已砍倒
+                    choppedTrees.add(`${cx},${cy}`);
+                    
+                    // 获得木头
+                    const oldWood = inventory.wood;
+                    inventory.wood += treeInfo.trunkHeight;
+                    updateHotbarOrder('wood', oldWood, inventory.wood);
+                    
+                    // 散落树枝
+                    for (let i = 0; i < 2; i++) {
+                        const dropCX = cx + Math.floor(Math.random() * 5) - 2;
+                        const dropCY = cy + Math.floor(Math.random() * 5) - 2;
+                        const dropKey = `${dropCX * bgW + bgW/2},${dropCY * bgH + bgH/2}`;
+                        if (!placedItems.has(dropKey)) {
+                            placedItems.set(dropKey, 'branch');
+                        }
+                    }
+                    
+                    // 清除缓存以便重新计算（其实不需要，因为用 choppedTrees 拦截了）
+                    choppingTarget = null;
+                }
+            }
+
             updateCraft();
         }
 
         // ======================= 十三、渲染 =======================
-        let renderList = [];
-
         function draw() {
             ctx.imageSmoothingEnabled = false;
             ctx.fillStyle = '#3b7a3b'; ctx.fillRect(0, 0, logicWidth, logicHeight);
@@ -877,18 +939,12 @@
                 }
             }
 
-            // 2) 收集对象
-            renderList = [];
             const startCellX = Math.floor(camX / bgW) - 5, endCellX = Math.floor((camX + logicWidth) / bgW) + 5;
             const startCellY = Math.floor(camY / bgH) - 12, endCellY = Math.floor((camY + logicHeight) / bgH) + 12;
 
+            // ====== 第一层：画地面物品 ======
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
-                    const treeInfo = getTreeInfo(cx, cy);
-                    if (treeInfo.isCenter) {
-                        renderList.push({ kind: 'tree', y: cy * bgH + bgH, cx, cy, trunkHeight: treeInfo.trunkHeight, topY: cy - treeInfo.trunkHeight, worldX: cx * bgW + bgW / 2 });
-                    }
-                    
                     const worldX = cx * bgW + bgW / 2, worldY = cy * bgH + bgH / 2;
                     const key = `${worldX},${worldY}`;
                     const isPlaced = placedItems.has(key);
@@ -896,8 +952,10 @@
 
                     if (isPlaced) {
                         const t = placedItems.get(key);
-                        let imgToDraw = t === 'grass' ? grassImg : t === 'pebble' ? pebbleImg : t === 'hay' ? hayImg : t === 'rope' ? ropeImg : t === 'gravel' ? gravelImg : t === 'branch' ? branchImg : null;
-                        if (imgToDraw) renderList.push({ kind: 'item', y: worldY, x: worldX, img: imgToDraw, size: itemTargetSize });
+                        let imgToDraw = t === 'grass' ? grassImg : t === 'pebble' ? pebbleImg : t === 'hay' ? hayImg : t === 'rope' ? ropeImg : t === 'gravel' ? gravelImg : t === 'branch' ? branchImg : t === 'wood' ? treeTrunkImg : null;
+                        if (imgToDraw && imgToDraw.complete) {
+                            ctx.drawImage(imgToDraw, worldX - itemTargetSize / 2 - camX, worldY - itemTargetSize / 2 - camY, itemTargetSize, itemTargetSize);
+                        }
                     } else if (!isOccupied) {
                         const itemRand = hash(cx, cy, 1);
                         let imgToDraw = null;
@@ -908,7 +966,22 @@
                         } else if (!collectedBranchSet.has(key) && checkIsBranch(cx, cy)) {
                             imgToDraw = branchImg;
                         }
-                        if (imgToDraw) renderList.push({ kind: 'item', y: worldY, x: worldX, img: imgToDraw, size: itemTargetSize });
+                        if (imgToDraw && imgToDraw.complete) {
+                            ctx.drawImage(imgToDraw, worldX - itemTargetSize / 2 - camX, worldY - itemTargetSize / 2 - camY, itemTargetSize, itemTargetSize);
+                        }
+                    }
+                }
+            }
+
+            // ====== 第二层：画树木和玩家（进行Y轴排序） ======
+            let actors = [];
+
+            for (let cx = startCellX; cx <= endCellX; cx++) {
+                for (let cy = startCellY; cy <= endCellY; cy++) {
+                    if (choppedTrees.has(`${cx},${cy}`)) continue; // 被砍倒的树不画
+                    const treeInfo = getTreeInfo(cx, cy);
+                    if (treeInfo.isCenter) {
+                        actors.push({ kind: 'tree', y: cy * bgH + bgH, cx, cy, trunkHeight: treeInfo.trunkHeight, topY: cy - treeInfo.trunkHeight, worldX: cx * bgW + bgW / 2 });
                     }
                 }
             }
@@ -921,31 +994,51 @@
             }
             if (!currentPlayerImg || !currentPlayerImg.complete || currentPlayerImg.naturalHeight === 0) currentPlayerImg = playerImg;
             
-            renderList.push({ kind: 'player', y: playerY + playerH / 2, x: playerX, img: currentPlayerImg, size: playerW });
+            actors.push({ kind: 'player', y: playerY + playerH / 2, x: playerX, img: currentPlayerImg, size: playerW });
 
-            renderList.sort((a, b) => a.y - b.y);
+            actors.sort((a, b) => a.y - b.y);
 
-            for (let item of renderList) {
+            for (let item of actors) {
                 if (item.kind === 'player') {
                     const pX = Math.round(logicWidth / 2 - playerW / 2), pY = Math.round(logicHeight / 2 - playerH / 2);
                     if (item.img.complete && item.img.naturalHeight !== 0) ctx.drawImage(item.img, pX, pY, playerW, playerH);
                     else { ctx.fillStyle = '#3498db'; ctx.fillRect(pX, pY, playerW, playerH); ctx.fillStyle = '#000'; ctx.fillRect(pX + 10, pY + 10, 6, 10); ctx.fillRect(pX + 32, pY + 10, 6, 10); }
                 } else if (item.kind === 'tree') {
                     const { cx, cy, trunkHeight, topY, worldX } = item;
-                    ctx.drawImage(treeStumpImg, worldX - bgW / 2 - camX, cy * bgH + bgH / 2 - bgW / 2 - camY, bgW, bgW);
-                    for (let i = 1; i <= trunkHeight; i++) ctx.drawImage(treeTrunkImg, worldX - bgW / 2 - camX, (cy - i) * bgH + bgH / 2 - bgW / 2 - camY, bgW, bgW);
+                    
+                    // 画树墩
+                    if (treeStumpImg.complete) ctx.drawImage(treeStumpImg, worldX - bgW / 2 - camX, cy * bgH + bgH / 2 - bgW / 2 - camY, bgW, bgW);
+                    
+                    // 画树干
+                    for (let i = 1; i <= trunkHeight; i++) {
+                        let drawImg = treeTrunkImg; // 默认正常树干
+                        
+                        // 如果正在砍这棵树，且是最下面一节
+                        if (choppingTarget && choppingTarget.cx === cx && choppingTarget.cy === cy && i === 1) {
+                            const t = choppingTarget.timer;
+                            if (t > 4000) drawImg = brokenTrunkImgs[3];
+                            else if (t > 3000) drawImg = brokenTrunkImgs[2];
+                            else if (t > 2000) drawImg = brokenTrunkImgs[1];
+                            else if (t > 1000) drawImg = brokenTrunkImgs[0];
+                        }
+                        
+                        if (drawImg && drawImg.complete) {
+                            ctx.drawImage(drawImg, worldX - bgW / 2 - camX, (cy - i) * bgH + bgH / 2 - bgW / 2 - camY, bgW, bgW);
+                        }
+                    }
+                    
+                    // 画树叶
                     const leafS = bgW * leafSizeMultiplier;
-                    for (let dx = -2; dx <= 2; dx++) ctx.drawImage(leafImg, (cx + dx) * bgW + bgW / 2 - leafS / 2 - camX, (topY - 1) * bgH + bgH / 2 - leafS / 2 - camY, leafS, leafS);
-                    for (let dx = -2; dx <= 2; dx++) ctx.drawImage(leafImg, (cx + dx) * bgW + bgW / 2 - leafS / 2 - camX, (topY - 2) * bgH + bgH / 2 - leafS / 2 - camY, leafS, leafS);
-                    for (let dx = -1; dx <= 1; dx++) ctx.drawImage(leafImg, (cx + dx) * bgW + bgW / 2 - leafS / 2 - camX, (topY - 3) * bgH + bgH / 2 - leafS / 2 - camY, leafS, leafS);
-                } else {
-                    if (item.img.complete && item.img.naturalHeight !== 0) ctx.drawImage(item.img, item.x - item.size / 2 - camX, item.y - item.size / 2 - camY, item.size, item.size);
+                    if (leafImg.complete) {
+                        for (let dx = -2; dx <= 2; dx++) ctx.drawImage(leafImg, (cx + dx) * bgW + bgW / 2 - leafS / 2 - camX, (topY - 1) * bgH + bgH / 2 - leafS / 2 - camY, leafS, leafS);
+                        for (let dx = -2; dx <= 2; dx++) ctx.drawImage(leafImg, (cx + dx) * bgW + bgW / 2 - leafS / 2 - camX, (topY - 2) * bgH + bgH / 2 - leafS / 2 - camY, leafS, leafS);
+                        for (let dx = -1; dx <= 1; dx++) ctx.drawImage(leafImg, (cx + dx) * bgW + bgW / 2 - leafS / 2 - camX, (topY - 3) * bgH + bgH / 2 - leafS / 2 - camY, leafS, leafS);
+                    }
                 }
             }
 
             // ================== 绘制合成系统 ==================
             const rect = getCraftRect();
-            
             ctx.save();
             ctx.translate(craftShakeOffset.x, craftShakeOffset.y);
 
@@ -959,13 +1052,13 @@
                 const slot = craftSlots[i];
                 if (!slot) continue;
                 const drawSize = craftSlotSize * slot.scale * getItemScale(slot.type);
-                if (drawSize > 0) {
+                if (drawSize > 0 && slot.img.complete) {
                     ctx.drawImage(slot.img, slot.visX - drawSize / 2, slot.visY - drawSize / 2, drawSize, drawSize);
                 }
             }
 
             for (const item of returningItems) {
-                if (item.currentX !== undefined) {
+                if (item.currentX !== undefined && item.img.complete) {
                     const t = Math.min(item.timer / 300, 1);
                     const size = craftSlotSize * (1 - t * 0.5) * getItemScale(item.type);
                     ctx.drawImage(item.img, item.currentX - size / 2, item.currentY - size / 2, size, size);
@@ -985,8 +1078,9 @@
                     drawScale = 1 - t * 0.5;
                 }
 
-                const size = craftSlotSize * 1.2 * drawScale * getItemScale(craftResult.type); 
-                if (size > 0) {
+                // 【改大】合成结果显示得更大（从 1.2 改成 1.6）
+                const size = craftSlotSize * 1.6 * drawScale * getItemScale(craftResult.type); 
+                if (size > 0 && craftResult.img.complete) {
                     ctx.drawImage(craftResult.img, drawX - size / 2, drawY - size / 2, size, size);
                 }
                 
@@ -1020,7 +1114,7 @@
                     const drawSize = uiItemSize * getItemScale(item.type);
                     const offset = (uiItemSize - drawSize) / 2;
                     
-                    if (item.img.complete && item.img.naturalHeight !== 0) {
+                    if (item.img && item.img.complete && item.img.naturalHeight !== 0) {
                         ctx.drawImage(item.img, itemX + offset, itemY + offset, drawSize, drawSize);
                     }
 
