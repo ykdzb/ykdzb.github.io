@@ -46,10 +46,11 @@
         const TREE_CACHE_LIMIT = 20000;
 
         // ======================= 二、游戏状态变量 =======================
-        const collectedGrassSet = new Set(), collectedPebbleSet = new Set(), placedItems = new Map();
+        const collectedGrassSet = new Set(), collectedPebbleSet = new Set(), collectedBranchSet = new Set();
+        const placedItems = new Map();
         
-        // 扩充库存 (新增 gravel)
-        const inventory = { grass: 0, pebble: 0, hay: 0, rope: 0, gravel: 0 };
+        // 扩充库存
+        const inventory = { grass: 0, pebble: 0, hay: 0, rope: 0, gravel: 0, branch: 0 };
         let hotbarOrder = [];
         
         let selectedItemIndex = 0, isPlaceButtonPressed = false, electorVisualX = null;
@@ -65,6 +66,9 @@
         let lastEdgeClickTime = 0;
         let returningItems = [];
 
+        // 不可放置的物品黑名单
+        const unplaceableItems = ['hay', 'rope', 'gravel'];
+
         // ======================= 三、加载图片 =======================
         const bgImg = new Image(), playerImg = new Image(), playerRightImg = new Image();
         const playerLeftImg = new Image(), playerUpImg = new Image(), playerDownImg = new Image();
@@ -72,7 +76,7 @@
         const placeImg = new Image(), pressedPlaceImg = new Image();
         const joystickBaseImg = new Image(), joystickControlImg = new Image();
         const treeStumpImg = new Image(), treeTrunkImg = new Image(), leafImg = new Image();
-        const craftImg = new Image(), hayImg = new Image(), ropeImg = new Image(), gravelImg = new Image();
+        const craftImg = new Image(), hayImg = new Image(), ropeImg = new Image(), gravelImg = new Image(), branchImg = new Image();
 
         bgImg.src = './Game/picture/item/grass_land.png';
         playerImg.src = './Game/picture/mob/player.png';
@@ -94,7 +98,8 @@
         craftImg.src = './Game/picture/ui/craft.png';
         hayImg.src = './Game/picture/item/hay.png'; 
         ropeImg.src = './Game/picture/item/rope.png';
-        gravelImg.src = './Game/picture/item/gravel.png'; // 新增砂砾
+        gravelImg.src = './Game/picture/item/gravel.png';
+        branchImg.src = './Game/picture/item/branch.png'; // 新增树枝
 
         const digitImgs = {};
         for (let i = 0; i <= 9; i++) {
@@ -128,7 +133,7 @@
             bgImg, playerImg, playerRightImg, playerLeftImg, playerUpImg, playerDownImg,
             grassImg, pebbleImg, treeStumpImg, treeTrunkImg, leafImg,
             electorImg, placeImg, pressedPlaceImg, joystickBaseImg, joystickControlImg,
-            craftImg, hayImg, ropeImg, gravelImg
+            craftImg, hayImg, ropeImg, gravelImg, branchImg // 加入树枝
         ];
         for (let i = 0; i <= 9; i++) allImages.push(digitImgs[i]);
 
@@ -184,11 +189,16 @@
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             }
 
-            // 【需求5】检测横屏进行 UI 放大
             if (logicWidth > logicHeight) {
                 UI_SCALE = 1.25;
             } else {
                 UI_SCALE = 1.0;
+            }
+
+            // 检测手机端，UI 缩小一点
+            const isMobilePhone = /Android.*Mobile|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            if (isMobilePhone) {
+                UI_SCALE *= 0.85; // 缩小 15%
             }
 
             // 重新应用尺寸
@@ -271,6 +281,27 @@
             return occupied;
         }
 
+        // 判断该格是否为自然生成的树枝
+        function checkIsBranch(cx, cy) {
+            for (let dx = -3; dx <= 3; dx++) {
+                for (let dy = -3; dy <= 3; dy++) {
+                    if (dx * dx + dy * dy <= 9) { // 3格半径内
+                        const tx = cx + dx, ty = cy + dy;
+                        if (isTreeCenter(tx, ty)) {
+                            // 这棵树有1/4概率产生树枝
+                            if (hash(tx, ty, 201) < 0.25) {
+                                // 在这个树枝周围散落的具体位置判定
+                                if (hash(cx, cy, 202) < 0.15) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
         // ======================= 八、库存与物品 =======================
         function updateHotbarOrder(type, oldCount, newCount) {
             if (oldCount === 0 && newCount > 0) {
@@ -278,11 +309,17 @@
             }
         }
 
+        // UI绘制缩放系数：统一处理干草、绳子、碎石、树枝，让它们在 UI 里看起来小一点
+        function getItemScale(type) {
+            if (type === 'grass' || type === 'pebble') return 1.0;
+            return 0.75; // 以后加的所有物品（特殊除外）都默认乘这个系数
+        }
+
         function getActiveItems() {
             hotbarOrder = hotbarOrder.filter(t => inventory[t] > 0);
             const items = [];
             for (let type of hotbarOrder) {
-                let img = type === 'grass' ? grassImg : type === 'pebble' ? pebbleImg : type === 'hay' ? hayImg : type === 'rope' ? ropeImg : gravelImg;
+                let img = type === 'grass' ? grassImg : type === 'pebble' ? pebbleImg : type === 'hay' ? hayImg : type === 'rope' ? ropeImg : type === 'gravel' ? gravelImg : branchImg;
                 items.push({ type, img, count: inventory[type] });
             }
             return items;
@@ -320,6 +357,9 @@
             if (activeItems.length === 0) return;
             const selectedType = activeItems[selectedItemIndex].type;
 
+            // 【新增】不可放置判定
+            if (unplaceableItems.includes(selectedType)) return;
+
             const cx = Math.floor(targetWorldX / bgW);
             const cy = Math.floor(targetWorldY / bgH);
             const pointX = cx * bgW + bgW / 2;
@@ -330,8 +370,8 @@
             let hasNatural = false;
             if (itemRand < grassChance) { if (!collectedGrassSet.has(key)) hasNatural = true; }
             else if (itemRand >= grassChance && itemRand < grassChance + pebbleChance) { if (!collectedPebbleSet.has(key)) hasNatural = true; }
+            else if (!collectedBranchSet.has(key) && checkIsBranch(cx, cy)) { hasNatural = true; }
 
-            // 【修复】只拦截树根中心，下方随意放
             if (hasNatural || placedItems.has(key) || isTreeCenter(cx, cy)) return;
 
             placedItems.set(key, selectedType);
@@ -383,6 +423,12 @@
                                 updateHotbarOrder('pebble', old, inventory.pebble);
                                 return true; 
                             }
+                        } else if (!collectedBranchSet.has(key) && checkIsBranch(cx, cy)) {
+                            collectedBranchSet.add(key);
+                            const old = inventory.branch;
+                            inventory.branch++;
+                            updateHotbarOrder('branch', old, inventory.branch);
+                            return true;
                         }
                     }
                 }
@@ -438,7 +484,6 @@
             }
 
             if (craftState === 'idle') {
-                // 【防误触】点击物品判定缩小到上下左右 15 像素内
                 for (let i = 0; i < 4; i++) {
                     const slot = craftSlots[i];
                     if (!slot) continue;
@@ -459,6 +504,7 @@
                         const startX = (logicWidth - totalWidth) / 2;
 
                         returningItems.push({
+                            type: slot.type,
                             img: slot.img,
                             startX: slot.visX,
                             startY: slot.visY,
@@ -471,7 +517,6 @@
                 }
 
                 if (isInside) {
-                    // 【防误触】边缘判定放大到 25 像素
                     const localX = x - rect.x, localY = y - rect.y;
                     const isEdge = localX < 25 || localX > rect.w - 25 || localY < 25 || localY > rect.h - 25;
                     
@@ -526,21 +571,21 @@
             for (let i = 0; i < 4; i++) if (types[i]) count++;
             if (count === 0) return;
 
-            // 配方1：4个草 -> 4个干草
+            // 4个草 -> 4个干草
             if (count === 4 && types[0] === 'grass' && types[1] === 'grass' && types[2] === 'grass' && types[3] === 'grass') {
                 craftResult = { type: 'hay', count: 4, img: hayImg };
                 startCraftingAnim();
                 return;
             }
 
-            // 配方2：左上、右上、左下是干草 -> 1个绳子
+            // 左上、右上、左下是干草 -> 1个绳子
             if (types[0] === 'hay' && types[1] === 'hay' && types[2] === 'hay' && types[3] === null) {
                 craftResult = { type: 'rope', count: 1, img: ropeImg };
                 startCraftingAnim();
                 return;
             }
             
-            // 配方3：任意两个石头 -> 2个砂砾
+            // 任意两个石头 -> 2个砂砾
             if (count === 2 && types.filter(t => t === 'pebble').length === 2) {
                 craftResult = { type: 'gravel', count: 2, img: gravelImg };
                 startCraftingAnim();
@@ -677,11 +722,9 @@
                 }
                 if (checkInventoryClick(x, y)) return;
                 if (tryCollect(x, y)) return;
-                // 【阉割】移除了鼠标点击移动逻辑
             }
         });
         
-        // 【阉割】移除了 mousemove 和 mouseup 的拖拽记录
         window.addEventListener('mouseup', (e) => { if (e.button === 0) { isPlaceButtonPressed = false; } });
 
         canvas.addEventListener('touchstart', (e) => {
@@ -766,7 +809,6 @@
                 const force = Math.min(dist / maxDist, 1);
                 if (dist > 5) { targetVx = (dx / dist) * maxSpeed * force; targetVy = (dy / dist) * maxSpeed * force; }
             }
-            // 【阉割】移除了 else if (isMouseDown) 分支
 
             if (isMoving) {
                 velocityX += (targetVx - velocityX) * accelerationSmooth;
@@ -852,10 +894,9 @@
                     const isPlaced = placedItems.has(key);
                     const isOccupied = isTreeOccupied(cx, cy);
 
-                    // 【核心修复】：玩家放的东西无视树冠遮挡直接渲染；自然生成的被树遮挡的不渲染
                     if (isPlaced) {
                         const t = placedItems.get(key);
-                        let imgToDraw = t === 'grass' ? grassImg : t === 'pebble' ? pebbleImg : t === 'hay' ? hayImg : t === 'rope' ? ropeImg : t === 'gravel' ? gravelImg : null;
+                        let imgToDraw = t === 'grass' ? grassImg : t === 'pebble' ? pebbleImg : t === 'hay' ? hayImg : t === 'rope' ? ropeImg : t === 'gravel' ? gravelImg : t === 'branch' ? branchImg : null;
                         if (imgToDraw) renderList.push({ kind: 'item', y: worldY, x: worldX, img: imgToDraw, size: itemTargetSize });
                     } else if (!isOccupied) {
                         const itemRand = hash(cx, cy, 1);
@@ -864,6 +905,8 @@
                             if (!collectedGrassSet.has(key)) imgToDraw = grassImg;
                         } else if (itemRand >= grassChance && itemRand < grassChance + pebbleChance) {
                             if (!collectedPebbleSet.has(key)) imgToDraw = pebbleImg;
+                        } else if (!collectedBranchSet.has(key) && checkIsBranch(cx, cy)) {
+                            imgToDraw = branchImg;
                         }
                         if (imgToDraw) renderList.push({ kind: 'item', y: worldY, x: worldX, img: imgToDraw, size: itemTargetSize });
                     }
@@ -912,13 +955,10 @@
                 ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
             }
 
-            // 【尺寸修正】如果类型是 hay/rope/gravel，绘制时缩小一点补偿 16x16 的源图
-            const getSizeMod = (type) => (type === 'hay' || type === 'rope' || type === 'gravel') ? 0.85 : 1.0;
-
             for (let i = 0; i < 4; i++) {
                 const slot = craftSlots[i];
                 if (!slot) continue;
-                const drawSize = craftSlotSize * slot.scale * getSizeMod(slot.type);
+                const drawSize = craftSlotSize * slot.scale * getItemScale(slot.type);
                 if (drawSize > 0) {
                     ctx.drawImage(slot.img, slot.visX - drawSize / 2, slot.visY - drawSize / 2, drawSize, drawSize);
                 }
@@ -927,7 +967,7 @@
             for (const item of returningItems) {
                 if (item.currentX !== undefined) {
                     const t = Math.min(item.timer / 300, 1);
-                    const size = craftSlotSize * (1 - t * 0.5) * getSizeMod(item.type);
+                    const size = craftSlotSize * (1 - t * 0.5) * getItemScale(item.type);
                     ctx.drawImage(item.img, item.currentX - size / 2, item.currentY - size / 2, size, size);
                 }
             }
@@ -945,7 +985,7 @@
                     drawScale = 1 - t * 0.5;
                 }
 
-                const size = craftSlotSize * 1.2 * drawScale * getSizeMod(craftResult.type); 
+                const size = craftSlotSize * 1.2 * drawScale * getItemScale(craftResult.type); 
                 if (size > 0) {
                     ctx.drawImage(craftResult.img, drawX - size / 2, drawY - size / 2, size, size);
                 }
@@ -976,16 +1016,16 @@
 
                 for (let i = 0; i < activeItems.length; i++) {
                     const item = activeItems[i], itemX = startX + i * (uiItemSize + uiGap), itemY = startY;
-                    // 绘制物品时也应用尺寸修正
-                    const drawSize = uiItemSize * getSizeMod(item.type);
+                    
+                    const drawSize = uiItemSize * getItemScale(item.type);
                     const offset = (uiItemSize - drawSize) / 2;
+                    
                     if (item.img.complete && item.img.naturalHeight !== 0) {
                         ctx.drawImage(item.img, itemX + offset, itemY + offset, drawSize, drawSize);
                     }
 
-                    // 绘制数字
                     const str = item.count.toString(); let currentRightX = itemX + uiItemSize - 2;
-                    const digitScale = 1.5 * UI_SCALE; // 数字也跟随 UI 放大
+                    const digitScale = 1.5 * UI_SCALE; 
                     for (let j = str.length - 1; j >= 0; j--) {
                         const d = digitImgs[str[j]];
                         if (d && d.complete && d.naturalHeight !== 0) {
