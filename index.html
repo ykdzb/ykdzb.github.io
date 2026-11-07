@@ -47,7 +47,7 @@
         // ======================= 二、游戏状态变量 =======================
         const collectedGrassSet = new Set(), collectedPebbleSet = new Set(), collectedBranchSet = new Set();
         const placedItems = new Map();
-        const choppedTrees = new Set(); // 记录被砍倒的树，key = "cx,cy"
+        const choppedTrees = new Set(); // 记录树干被砍倒的树，key = "cx,cy"
         
         // 扩充库存
         const inventory = { grass: 0, pebble: 0, hay: 0, rope: 0, gravel: 0, branch: 0, axe: 0, wood: 0 };
@@ -67,12 +67,12 @@
         let returningItems = [];
 
         // 砍树系统状态
-        let choppingTarget = null; // { cx, cy, timer }
-        let isMouseDown = false;   // 用于PC端检测是否松手
+        let choppingTarget = null; // { cx, cy, timer, isLeft }
+        let isMouseDown = false;
 
-        const unplaceableItems = ['hay', 'rope', 'gravel', 'axe']; // 斧头、干草等不可放置
+        const unplaceableItems = ['hay', 'rope', 'gravel', 'axe'];
 
-        // ======================= 三、加载图片 =======================
+        // ======================= 三、加载图片与音效 =======================
         const bgImg = new Image(), playerImg = new Image(), playerRightImg = new Image();
         const playerLeftImg = new Image(), playerUpImg = new Image(), playerDownImg = new Image();
         const grassImg = new Image(), pebbleImg = new Image(), electorImg = new Image();
@@ -82,7 +82,6 @@
         const craftImg = new Image(), hayImg = new Image(), ropeImg = new Image(), gravelImg = new Image(), branchImg = new Image();
         const axeImg = new Image();
         
-        // 破损的树干图片
         const brokenTrunkImgs = [];
         for (let i = 1; i <= 4; i++) {
             const img = new Image();
@@ -118,6 +117,33 @@
         for (let i = 0; i <= 9; i++) {
             digitImgs[i] = new Image();
             digitImgs[i].src = `./Game/picture/text/${i}.png`;
+        }
+
+        // 音频加载
+        const sfxWeeding = new Audio('./sounds/sounds_effects/weeding.ogg');
+        const sfxPicking = new Audio('./sounds/sounds_effects/picking_up_pebbles.ogg');
+        let audioUnlocked = false;
+
+        // 浏览器要求用户交互后才能播放音频
+        function unlockAudio() {
+            if (!audioUnlocked) {
+                audioUnlocked = true;
+                sfxWeeding.volume = 0.5;
+                sfxPicking.volume = 0.5;
+            }
+        }
+        window.addEventListener('mousedown', unlockAudio, { once: true });
+        window.addEventListener('touchstart', unlockAudio, { once: true });
+
+        function playSFX(type) {
+            if (!audioUnlocked) return;
+            if (type === 'weeding') {
+                sfxWeeding.currentTime = 0;
+                sfxWeeding.play().catch(() => {});
+            } else if (type === 'picking') {
+                sfxPicking.currentTime = 0;
+                sfxPicking.play().catch(() => {});
+            }
         }
 
         let bgW = bgTargetSize, bgH = bgTargetSize, playerW = playerTargetSize, playerH = playerTargetSize;
@@ -332,7 +358,7 @@
                     const itemX = startX + i * (uiItemSize + uiGap);
                     if (logicX >= itemX && logicX <= itemX + uiItemSize && logicY >= startY && logicY <= startY + uiItemSize) {
                         selectedItemIndex = i; 
-                        choppingTarget = null; // 切换物品中断砍树
+                        choppingTarget = null; 
                         return true;
                     }
                 }
@@ -371,35 +397,36 @@
 
             placedItems.set(key, selectedType);
             if (inventory[selectedType] > 0) inventory[selectedType]--;
+
+            // 播放放置音效
+            if (selectedType === 'grass') playSFX('weeding');
+            else if (selectedType === 'pebble') playSFX('picking');
         }
 
         function tryCollect(logicX, logicY) {
             const camX = Math.round(playerX - logicWidth / 2), camY = Math.round(playerY - logicHeight / 2);
             const clickWorldX = logicX + camX, clickWorldY = logicY + camY;
             
-            // --- 砍树逻辑优先 ---
+            // --- 砍树逻辑 ---
             const activeItems = getActiveItems();
             const selectedType = activeItems.length > 0 ? activeItems[selectedItemIndex].type : null;
             
             if (selectedType === 'axe') {
-                // 检测是否点在了树干上（树根往上第一节）
                 const checkCX = Math.floor(clickWorldX / bgW);
                 const checkCY = Math.floor(clickWorldY / bgH);
                 
-                // 遍历附近找树
                 for (let cx = checkCX - 1; cx <= checkCX + 1; cx++) {
                     for (let cy = checkCY - 1; cy <= checkCY + 1; cy++) {
                         if (isTreeCenter(cx, cy) && !choppedTrees.has(`${cx},${cy}`)) {
-                            // 树干中心位置
                             const trunkX = cx * bgW + bgW / 2;
-                            const trunkY = cy * bgH; // 树根上方
+                            const trunkY = cy * bgH;
                             
-                            // 点击判定范围
                             if (Math.abs(clickWorldX - trunkX) < bgW / 2 && Math.abs(clickWorldY - trunkY) < bgH) {
-                                // 距离判定
                                 const dist = Math.hypot(playerX - trunkX, playerY - trunkY);
                                 if (dist < 120) {
-                                    choppingTarget = { cx, cy, timer: 0 };
+                                    // 判断是从左边还是右边砍的
+                                    const isLeft = clickWorldX < trunkX;
+                                    choppingTarget = { cx, cy, timer: 0, isLeft };
                                     return true;
                                 }
                             }
@@ -431,6 +458,9 @@
                                 inventory[type]++;
                                 updateHotbarOrder(type, old, inventory[type]);
                             }
+                            // 播放捡起音效
+                            if (type === 'grass') playSFX('weeding');
+                            else if (type === 'pebble') playSFX('picking');
                             return true;
                         }
 
@@ -441,6 +471,7 @@
                                 const old = inventory.grass;
                                 inventory.grass++; 
                                 updateHotbarOrder('grass', old, inventory.grass);
+                                playSFX('weeding');
                                 return true; 
                             }
                         } else if (itemRand >= grassChance && itemRand < grassChance + pebbleChance) {
@@ -449,6 +480,7 @@
                                 const old = inventory.pebble;
                                 inventory.pebble++; 
                                 updateHotbarOrder('pebble', old, inventory.pebble);
+                                playSFX('picking');
                                 return true; 
                             }
                         } else if (!collectedBranchSet.has(key) && checkIsBranch(cx, cy)) {
@@ -592,22 +624,22 @@
             // 4个草 -> 4个干草
             if (count === 4 && types[0] === 'grass' && types[1] === 'grass' && types[2] === 'grass' && types[3] === 'grass') {
                 craftResult = { type: 'hay', count: 4, img: hayImg };
-                startCraftingAnim(); return;
+                startCraftingAnim(); playSFX('weeding'); return;
             }
 
             // 干草 -> 绳子
             if (types[0] === 'hay' && types[1] === 'hay' && types[2] === 'hay' && types[3] === null) {
                 craftResult = { type: 'rope', count: 1, img: ropeImg };
-                startCraftingAnim(); return;
+                startCraftingAnim(); playSFX('weeding'); return;
             }
             
             // 石头 -> 砂砾
             if (count === 2 && types.filter(t => t === 'pebble').length === 2) {
                 craftResult = { type: 'gravel', count: 2, img: gravelImg };
-                startCraftingAnim(); return;
+                startCraftingAnim(); playSFX('picking'); return;
             }
 
-            // 【新配方】左上木棍 + 右上碎石 + 左下绳子 -> 斧头
+            // 斧头
             if (types[0] === 'branch' && types[1] === 'gravel' && types[2] === 'rope' && types[3] === null) {
                 craftResult = { type: 'axe', count: 1, img: axeImg };
                 startCraftingAnim(); return;
@@ -708,7 +740,7 @@
             for (let cx = minCX; cx <= maxCX; cx++) {
                 for (let cy = minCY; cy <= maxCY; cy++) {
                     if (!isTreeCenter(cx, cy)) continue;
-                    if (choppedTrees.has(`${cx},${cy}`)) continue; // 砍倒的树不挡路
+                    // 【注意】即使树被砍倒了，树墩依然存在，依然会阻挡玩家，所以这里不移除拦截
                     const tL = cx * bgW + inset, tR = (cx + 1) * bgW - inset;
                     const tT = cy * bgH + inset, tB = (cy + 1) * bgH - inset;
                     if (right > tL && left < tR && bottom > tT && top < tB) return true;
@@ -730,7 +762,7 @@
         canvas.addEventListener('mousedown', (e) => { 
             if (e.button === 0) {
                 isTouchMode = false;
-                isMouseDown = true; // 记录鼠标按下
+                isMouseDown = true;
                 const { x, y } = getLogicCoords(e.clientX, e.clientY);
                 if (handleCraftClick(x, y)) return;
 
@@ -748,7 +780,7 @@
             if (e.button === 0) { 
                 isPlaceButtonPressed = false; 
                 isMouseDown = false;
-                choppingTarget = null; // 松手中断砍树
+                choppingTarget = null; 
             } 
         });
 
@@ -791,7 +823,6 @@
                     const dist = Math.hypot(dx, dy), maxDist = joystickBaseSize / 2; 
                     if (dist > maxDist) { dx = (dx / dist) * maxDist; dy = (dy / dist) * maxDist; }
                     joystickCurrentX = baseCenterX + dx; joystickCurrentY = baseCenterY + dy;
-                    // 移动中断砍树
                     if (Math.hypot(dx, dy) > 10) choppingTarget = null;
                 }
             }
@@ -809,7 +840,7 @@
             }
             isPlaceButtonPressed = false; 
             isMouseDown = false;
-            choppingTarget = null; // 松手中断
+            choppingTarget = null;
         }, { passive: false });
         
         window.addEventListener('touchcancel', () => { 
@@ -833,7 +864,7 @@
             if (kdx !== 0 || kdy !== 0) {
                 isMoving = true; const length = Math.hypot(kdx, kdy);
                 targetVx = (kdx / length) * maxSpeed; targetVy = (kdy / length) * maxSpeed;
-                choppingTarget = null; // 键盘移动中断砍树
+                choppingTarget = null;
             } else if (joystickActive) {
                 isMoving = true; const bX = joystickBaseMargin + joystickBaseSize / 2;
                 const bY = logicHeight - joystickBaseMargin - joystickBaseSize / 2;
@@ -880,11 +911,10 @@
             if (choppingTarget) {
                 choppingTarget.timer += FIXED_DT;
                 if (choppingTarget.timer >= 5000) {
-                    // 砍断！
                     const cx = choppingTarget.cx, cy = choppingTarget.cy;
                     const treeInfo = getTreeInfo(cx, cy);
                     
-                    // 标记树已砍倒
+                    // 标记树干被砍倒（不标记树墩，树墩保留）
                     choppedTrees.add(`${cx},${cy}`);
                     
                     // 获得木头
@@ -902,7 +932,6 @@
                         }
                     }
                     
-                    // 清除缓存以便重新计算（其实不需要，因为用 choppedTrees 拦截了）
                     choppingTarget = null;
                 }
             }
@@ -929,7 +958,6 @@
 
             const camX = Math.round(playerX - logicWidth / 2), camY = Math.round(playerY - logicHeight / 2);
 
-            // 1) 画背景
             if (bgImg.complete && bgImg.naturalHeight !== 0) {
                 const startX = Math.floor(camX / bgW) * bgW, startY = Math.floor(camY / bgH) * bgH;
                 for (let x = startX; x <= camX + logicWidth; x += bgW) {
@@ -942,7 +970,7 @@
             const startCellX = Math.floor(camX / bgW) - 5, endCellX = Math.floor((camX + logicWidth) / bgW) + 5;
             const startCellY = Math.floor(camY / bgH) - 12, endCellY = Math.floor((camY + logicHeight) / bgH) + 12;
 
-            // ====== 第一层：画地面物品 ======
+            // ====== 第一层：地面物品 ======
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
                     const worldX = cx * bgW + bgW / 2, worldY = cy * bgH + bgH / 2;
@@ -973,15 +1001,21 @@
                 }
             }
 
-            // ====== 第二层：画树木和玩家（进行Y轴排序） ======
+            // ====== 第二层：树木和玩家 ======
             let actors = [];
 
             for (let cx = startCellX; cx <= endCellX; cx++) {
                 for (let cy = startCellY; cy <= endCellY; cy++) {
-                    if (choppedTrees.has(`${cx},${cy}`)) continue; // 被砍倒的树不画
                     const treeInfo = getTreeInfo(cx, cy);
                     if (treeInfo.isCenter) {
-                        actors.push({ kind: 'tree', y: cy * bgH + bgH, cx, cy, trunkHeight: treeInfo.trunkHeight, topY: cy - treeInfo.trunkHeight, worldX: cx * bgW + bgW / 2 });
+                        actors.push({ 
+                            kind: 'tree', 
+                            isChopped: choppedTrees.has(`${cx},${cy}`), // 树干是否被砍倒
+                            y: cy * bgH + bgH, 
+                            cx, cy, trunkHeight: treeInfo.trunkHeight, 
+                            topY: cy - treeInfo.trunkHeight, 
+                            worldX: cx * bgW + bgW / 2 
+                        });
                     }
                 }
             }
@@ -1004,16 +1038,20 @@
                     if (item.img.complete && item.img.naturalHeight !== 0) ctx.drawImage(item.img, pX, pY, playerW, playerH);
                     else { ctx.fillStyle = '#3498db'; ctx.fillRect(pX, pY, playerW, playerH); ctx.fillStyle = '#000'; ctx.fillRect(pX + 10, pY + 10, 6, 10); ctx.fillRect(pX + 32, pY + 10, 6, 10); }
                 } else if (item.kind === 'tree') {
-                    const { cx, cy, trunkHeight, topY, worldX } = item;
+                    const { cx, cy, isChopped, trunkHeight, topY, worldX } = item;
                     
-                    // 画树墩
-                    if (treeStumpImg.complete) ctx.drawImage(treeStumpImg, worldX - bgW / 2 - camX, cy * bgH + bgH / 2 - bgW / 2 - camY, bgW, bgW);
+                    // 1. 画树墩 (不管砍没砍，树墩永远都在)
+                    if (treeStumpImg.complete) {
+                        ctx.drawImage(treeStumpImg, worldX - bgW / 2 - camX, cy * bgH + bgH / 2 - bgW / 2 - camY, bgW, bgW);
+                    }
                     
-                    // 画树干
+                    // 2. 如果被砍倒了，跳过树干和树叶
+                    if (isChopped) continue;
+                    
+                    // 3. 画树干
                     for (let i = 1; i <= trunkHeight; i++) {
-                        let drawImg = treeTrunkImg; // 默认正常树干
+                        let drawImg = treeTrunkImg;
                         
-                        // 如果正在砍这棵树，且是最下面一节
                         if (choppingTarget && choppingTarget.cx === cx && choppingTarget.cy === cy && i === 1) {
                             const t = choppingTarget.timer;
                             if (t > 4000) drawImg = brokenTrunkImgs[3];
@@ -1023,11 +1061,23 @@
                         }
                         
                         if (drawImg && drawImg.complete) {
-                            ctx.drawImage(drawImg, worldX - bgW / 2 - camX, (cy - i) * bgH + bgH / 2 - bgW / 2 - camY, bgW, bgW);
+                            const drawX = worldX - bgW / 2 - camX;
+                            const drawY = (cy - i) * bgH + bgH / 2 - bgW / 2 - camY;
+                            
+                            // 镜像处理
+                            if (choppingTarget && choppingTarget.cx === cx && choppingTarget.cy === cy && i === 1 && choppingTarget.isLeft) {
+                                ctx.save();
+                                ctx.translate(drawX + bgW / 2, drawY + bgW / 2);
+                                ctx.scale(-1, 1);
+                                ctx.drawImage(drawImg, -bgW / 2, -bgW / 2, bgW, bgW);
+                                ctx.restore();
+                            } else {
+                                ctx.drawImage(drawImg, drawX, drawY, bgW, bgW);
+                            }
                         }
                     }
                     
-                    // 画树叶
+                    // 4. 画树叶
                     const leafS = bgW * leafSizeMultiplier;
                     if (leafImg.complete) {
                         for (let dx = -2; dx <= 2; dx++) ctx.drawImage(leafImg, (cx + dx) * bgW + bgW / 2 - leafS / 2 - camX, (topY - 1) * bgH + bgH / 2 - leafS / 2 - camY, leafS, leafS);
@@ -1078,7 +1128,6 @@
                     drawScale = 1 - t * 0.5;
                 }
 
-                // 【改大】合成结果显示得更大（从 1.2 改成 1.6）
                 const size = craftSlotSize * 1.6 * drawScale * getItemScale(craftResult.type); 
                 if (size > 0 && craftResult.img.complete) {
                     ctx.drawImage(craftResult.img, drawX - size / 2, drawY - size / 2, size, size);
